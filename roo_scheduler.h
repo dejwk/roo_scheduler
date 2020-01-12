@@ -10,10 +10,11 @@
 //
 // void foo();
 //
+// using namespace roo_time;
 // using namespace roo_scheduler;
 //
 // Scheduler scheduler;
-// RepetitiveTask foo_task(&scheduler, &foo, Interval::fromSeconds(5));
+// RepetitiveTask foo_task(&scheduler, &foo, Seconds(5));
 //
 // void setup() {
 //   // Instruct the scheduler to begin scheduling the foo_task.
