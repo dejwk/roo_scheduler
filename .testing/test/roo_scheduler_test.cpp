@@ -1,19 +1,22 @@
 #include "gtest/gtest.h"
 
+#include "roo_time.h"
 #include "roo_scheduler.h"
 
 static unsigned long int current_time_us = 0;
 
-unsigned long int micros() {
-  return current_time_us;
-}
+namespace roo_time {
+
+const Uptime Uptime::Now() { return Uptime(current_time_us); }
+
+}  // namespace roo_time
 
 namespace roo_scheduler {
 
 using namespace roo_time;
 
 void delay(Interval interval) {
-  current_time_us += interval.ToMicros();
+  current_time_us += interval.inMicros();
 }
 
 TEST(Scheduler, Now) {

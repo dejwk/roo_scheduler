@@ -1,3 +1,5 @@
+# BUILD file for use with https://github.com/dejwk/roo_testing.
+
 cc_library(
     name = "roo_scheduler",
     visibility = ["//visibility:public"],
@@ -12,17 +14,4 @@ cc_library(
         ".",
     ],
     deps = ["//lib/roo_time"],
-)
-
-cc_test(
-    name = "roo_scheduler_test",
-    srcs = [
-        "test/roo_scheduler_test.cpp",
-    ],
-    copts = ["-Iexternal/gtest/include"],
-    linkstatic = 1,
-    deps = [
-        "//lib/roo_scheduler",
-        "@gtest//:gtest_main",
-    ],
 )
