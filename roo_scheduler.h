@@ -28,10 +28,12 @@
 
 namespace roo_scheduler {
 
+typedef int32_t EventID;
+
 // Abstract interface for executable tasks in the scheduler queue.
 class Executable {
  public:
-  virtual void execute() = 0;
+  virtual void execute(EventID id) = 0;
 };
 
 // Allows executables to be scheduled at specified delays. Usually you
@@ -42,21 +44,30 @@ class Executable {
 // by calling 'executeEligibleTasks'.
 class Scheduler {
  public:
+  Scheduler() : next_event_id_(0) {}
+
   // Schedules the specified task to be executed no earlier than at the
   // specified absolute time.
-  void scheduleOn(Executable* task, roo_time::Uptime when) {
-    queue_.emplace(task, when);
+  EventID scheduleOn(Executable* task, roo_time::Uptime when) {
+    EventID id = next_event_id_++;
+    queue_.emplace(id, task, when);
+    return id;
   }
 
   // Schedules the specified task to be executed no earlier than after the
   // specified delay.
-  void scheduleAfter(Executable* task, roo_time::Interval delay) {
-    queue_.emplace(task, roo_time::Uptime::Now() + delay);
+  EventID scheduleAfter(Executable* task, roo_time::Interval delay) {
+    EventID id = next_event_id_;
+    ++next_event_id_;
+    // Reserve negative IDs for special use.
+    next_event_id_ &= 0x07FFFFFFF;
+    queue_.emplace(id, task, roo_time::Uptime::Now() + delay);
+    return id;
   }
 
   // Schedules the specified task to be executed ASAP.
-  void scheduleNow(Executable* task) {
-    scheduleOn(task, roo_time::Uptime::Now());
+  EventID scheduleNow(Executable* task) {
+    return scheduleOn(task, roo_time::Uptime::Now());
   }
 
   // Execute up to max_tasks of eligible tasks. Returns true if all eligible
@@ -74,12 +85,15 @@ class Scheduler {
  private:
   class Entry {
    public:
-    Entry(Executable* task, roo_time::Uptime when) : task_(task), when_(when) {}
+    Entry(EventID id, Executable* task, roo_time::Uptime when)
+        : id_(id), task_(task), when_(when) {}
 
     roo_time::Uptime when() const { return when_; }
     Executable* task() const { return task_; }
+    EventID id() const { return id_; }
 
    private:
+    EventID id_;
     Executable* task_;
     roo_time::Uptime when_;
   };
@@ -96,6 +110,8 @@ class Scheduler {
   // dynamically allocated, the queue can accommodate arbitrary number
   // of them as long as there is sufficient memory.
   std::priority_queue<Entry> queue_;
+
+  EventID next_event_id_;
 };
 
 inline bool operator<(const Scheduler::Entry& a, const Scheduler::Entry& b) {
@@ -107,7 +123,7 @@ inline bool operator<(const Scheduler::Entry& a, const Scheduler::Entry& b) {
 class Task : public Executable {
  public:
   Task(std::function<void()> task) : task_(task) {}
-  void execute() override { task_(); }
+  void execute(EventID id) override { task_(); }
 
  private:
   std::function<void()> task_;
@@ -133,7 +149,7 @@ class RepetitiveTask : public Executable {
     scheduler_->scheduleAfter(this, initial_delay);
   }
 
-  void execute() {
+  void execute(EventID id) {
     task_();
     scheduler_->scheduleAfter(this, delay_);
   }
@@ -168,7 +184,7 @@ class PeriodicTask : public Executable {
     scheduler_->scheduleOn(this, next_);
   }
 
-  void execute() {
+  void execute(EventID id) {
     task_();
     next_ += period_;
     scheduler_->scheduleOn(this, next_);
@@ -180,6 +196,64 @@ class PeriodicTask : public Executable {
   bool active_;
   roo_time::Interval period_;
   roo_time::Uptime next_;
+};
+
+// A convenience adapter that allows to schedule 'refresh'-type tasks, that can
+// be canceled or rescheduled. If the task is scheduled the second time while
+// its another execution is already pending, that other execution is effectively
+// 'canceled' - i.e. the task will not be triggered on its due time. (The entry
+// is not actually removed from the queue, so the task object cannot be deleted
+// until all its entries are past due and processed).
+class SingletonTask : public Executable {
+ public:
+  SingletonTask(Scheduler* scheduler, std::function<void()> task)
+      : scheduler_(scheduler), task_(task), id_(-1) {}
+
+  bool is_scheduled() const { return id_ >= 0; }
+
+  // (Re)schedules the execution of the task at the specific absolute time.
+  //
+  // If the task is already scheduled (is_scheduled() returning true), the new
+  // entry 'overrides' the previous instance - i.e. the task will only trigger
+  // on `when`.
+  //
+  // Note: the previous instance is not deleted from the queue. The task must
+  // stay alive until all previously scheduled instances are past due and
+  // processed.
+  void scheduleOn(roo_time::Uptime when = roo_time::Uptime::Now()) {
+    id_ = scheduler_->scheduleOn(this, when);
+  }
+
+  // (Re)schedules the execution of the task at the specified delay.
+  //
+  // If the task is already scheduled (is_scheduled() returning true), the new
+  // entry 'overrides' the previous instance - i.e. the task will only trigger
+  // on `when`.
+  //
+  // Note: the previous instance is not deleted from the queue. The task must
+  // stay alive until all previously scheduled instances are past due and
+  // processed.
+  void scheduleAfter(roo_time::Interval delay) {
+    id_ = scheduler_->scheduleAfter(this, delay);
+  }
+
+  void cancel() { id_ = -1; }
+
+  bool isScheduled() const { return id_ >= 0; }
+
+  void execute(EventID id) {
+    if (id != id_) return;
+    task_();
+    // Note: task may have re-scheduled itself. In this case, just return. Otherwise,
+    // mark as inactive, as we have done our job and aren't rescheduled.
+    if (id != id_) return;
+    id_ = -1;
+  }
+
+ private:
+  Scheduler* scheduler_;
+  std::function<void()> task_;
+  EventID id_;
 };
 
 }  // namespace roo_scheduler
