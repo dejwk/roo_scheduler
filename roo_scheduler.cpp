@@ -32,9 +32,11 @@ bool Scheduler::executeOneEligibleTask() {
   if (queue_.empty() || queue_.top().when() > roo_time::Uptime::Now()) {
     return false;
   }
-  Executable* task = queue_.top().task();
+  const Entry& entry = queue_.top();
+  Executable* task = entry.task();
+  EventID id = entry.id();
   queue_.pop();
-  task->execute();
+  task->execute(id);
   return true;
 }
 
