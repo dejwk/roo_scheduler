@@ -33,6 +33,7 @@ typedef int32_t EventID;
 // Abstract interface for executable tasks in the scheduler queue.
 class Executable {
  public:
+  virtual ~Executable() = default;
   virtual void execute(EventID id) = 0;
 };
 
@@ -149,7 +150,7 @@ class RepetitiveTask : public Executable {
     scheduler_->scheduleAfter(this, initial_delay);
   }
 
-  void execute(EventID id) {
+  void execute(EventID id) override {
     task_();
     scheduler_->scheduleAfter(this, delay_);
   }
@@ -184,7 +185,7 @@ class PeriodicTask : public Executable {
     scheduler_->scheduleOn(this, next_);
   }
 
-  void execute(EventID id) {
+  void execute(EventID id) override {
     task_();
     next_ += period_;
     scheduler_->scheduleOn(this, next_);
@@ -241,7 +242,7 @@ class SingletonTask : public Executable {
 
   bool isScheduled() const { return id_ >= 0; }
 
-  void execute(EventID id) {
+  void execute(EventID id) override {
     if (id != id_) return;
     task_();
     // Note: task may have re-scheduled itself. In this case, just return. Otherwise,
