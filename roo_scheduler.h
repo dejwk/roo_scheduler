@@ -14,7 +14,7 @@
 // using namespace roo_scheduler;
 //
 // Scheduler scheduler;
-// RepetitiveTask foo_task(&scheduler, &foo, Seconds(5));
+// RepetitiveTask foo_task(scheduler, foo, Seconds(5));
 //
 // void setup() {
 //   // Instruct the scheduler to begin scheduling the foo_task.
@@ -137,9 +137,13 @@ class Task : public Executable {
 // approximately every 6 seconds.
 class RepetitiveTask : public Executable {
  public:
-  RepetitiveTask(Scheduler* scheduler, std::function<void()> task,
+  RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
                  roo_time::Interval delay)
-      : scheduler_(scheduler), task_(task), active_(false), delay_(delay) {}
+      : scheduler_(scheduler),
+        task_(task),
+        id_(-1),
+        active_(false),
+        delay_(delay) {}
 
   bool is_active() const { return active_; }
 
@@ -147,17 +151,25 @@ class RepetitiveTask : public Executable {
 
   void start(roo_time::Interval initial_delay) {
     active_ = true;
-    scheduler_->scheduleAfter(this, initial_delay);
+    id_ = scheduler_.scheduleAfter(this, initial_delay);
+  }
+
+  void stop() {
+    active_ = false;
+    id_ = -1;
   }
 
   void execute(EventID id) override {
+    if (id != id_ || !active_) return;
     task_();
-    scheduler_->scheduleAfter(this, delay_);
+    if (!active_) return;
+    id_ = scheduler_.scheduleAfter(this, delay_);
   }
 
  private:
-  Scheduler* scheduler_;
+  Scheduler& scheduler_;
   std::function<void()> task_;
+  EventID id_;
   bool active_;
   roo_time::Interval delay_;
 };
@@ -173,27 +185,39 @@ class RepetitiveTask : public Executable {
 // a backlog of late executions will build up.
 class PeriodicTask : public Executable {
  public:
-  PeriodicTask(Scheduler* scheduler, std::function<void()> task,
+  PeriodicTask(Scheduler& scheduler, std::function<void()> task,
                roo_time::Interval period)
-      : scheduler_(scheduler), task_(task), active_(false), period_(period) {}
+      : scheduler_(scheduler),
+        task_(task),
+        id_(-1),
+        active_(false),
+        period_(period) {}
 
   bool is_active() const { return active_; }
 
   void start(roo_time::Uptime when = roo_time::Uptime::Now()) {
     active_ = true;
     next_ = when;
-    scheduler_->scheduleOn(this, next_);
+    id_ = scheduler_.scheduleOn(this, next_);
+  }
+
+  void stop() {
+    active_ = false;
+    id_ = -1;
   }
 
   void execute(EventID id) override {
+    if (id != id_ || !active_) return;
     task_();
     next_ += period_;
-    scheduler_->scheduleOn(this, next_);
+    if (!active_) return;
+    id_ = scheduler_.scheduleOn(this, next_);
   }
 
  private:
-  Scheduler* scheduler_;
+  Scheduler& scheduler_;
   std::function<void()> task_;
+  EventID id_;
   bool active_;
   roo_time::Interval period_;
   roo_time::Uptime next_;
@@ -207,7 +231,7 @@ class PeriodicTask : public Executable {
 // until all its entries are past due and processed).
 class SingletonTask : public Executable {
  public:
-  SingletonTask(Scheduler* scheduler, std::function<void()> task)
+  SingletonTask(Scheduler& scheduler, std::function<void()> task)
       : scheduler_(scheduler), task_(task), id_(-1) {}
 
   bool is_scheduled() const { return id_ >= 0; }
@@ -222,7 +246,7 @@ class SingletonTask : public Executable {
   // stay alive until all previously scheduled instances are past due and
   // processed.
   void scheduleOn(roo_time::Uptime when = roo_time::Uptime::Now()) {
-    id_ = scheduler_->scheduleOn(this, when);
+    id_ = scheduler_.scheduleOn(this, when);
   }
 
   // (Re)schedules the execution of the task at the specified delay.
@@ -235,7 +259,7 @@ class SingletonTask : public Executable {
   // stay alive until all previously scheduled instances are past due and
   // processed.
   void scheduleAfter(roo_time::Interval delay) {
-    id_ = scheduler_->scheduleAfter(this, delay);
+    id_ = scheduler_.scheduleAfter(this, delay);
   }
 
   void cancel() { id_ = -1; }
@@ -245,16 +269,62 @@ class SingletonTask : public Executable {
   void execute(EventID id) override {
     if (id != id_) return;
     task_();
-    // Note: task may have re-scheduled itself. In this case, just return. Otherwise,
-    // mark as inactive, as we have done our job and aren't rescheduled.
+    // Note: task may have re-scheduled itself. In this case, just return.
+    // Otherwise, mark as inactive, as we have done our job and aren't
+    // rescheduled.
     if (id != id_) return;
     id_ = -1;
   }
 
  private:
-  Scheduler* scheduler_;
+  Scheduler& scheduler_;
   std::function<void()> task_;
   EventID id_;
+};
+
+class IteratingTask : public Executable {
+ public:
+  class Iterator {
+   public:
+    virtual ~Iterator() = default;
+    virtual int64_t next() = 0;
+  };
+
+  IteratingTask(Scheduler& scheduler, Iterator& iterator,
+                std::function<void()> done_cb = std::function<void()>())
+      : scheduler_(scheduler),
+        itr_(iterator),
+        active_(false),
+        done_cb_(done_cb) {}
+
+  void start(roo_time::Uptime when = roo_time::Uptime::Now()) {
+    active_ = true;
+    scheduler_.scheduleOn(this, when);
+  }
+
+  void execute(EventID id) override {
+    int64_t next_delay_us = itr_.next();
+    if (next_delay_us >= 0) {
+      scheduler_.scheduleAfter(this, roo_time::Micros(next_delay_us));
+    } else {
+      active_ = false;
+      // This is the last thing we do, so that if the callback invokes our
+      // destructor, that's OK. (That said, the callback should also do so at
+      // the very end, because the callback is also destructing itself this
+      // way).
+      done_cb_();
+    }
+  }
+
+  bool is_active() const { return active_; }
+
+ private:
+  Scheduler& scheduler_;
+  Iterator& itr_;
+  bool active_;
+
+  // Called when the iterator finishes. Allowed to delete the iterating task.
+  std::function<void()> done_cb_;
 };
 
 }  // namespace roo_scheduler
