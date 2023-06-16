@@ -23,6 +23,9 @@
         "srcDir": ".",
         "srcFilter": "+<*> -<examples> -<test>"
     },
+    "examples": [
+        "examples/*/*.ino"
+    ],
     "dependencies": [
         {
             "owner": "dejwk",
