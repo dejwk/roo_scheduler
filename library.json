@@ -13,7 +13,7 @@
         "type": "git",
         "url": "https://github.com/dejwk/roo_scheduler"
     },
-    "version": "1.0",
+    "version": "1.0.1",
     "homepage": "https://github.com/dejwk/roo_scheduler",
     "frameworks": [
         "Arduino",
