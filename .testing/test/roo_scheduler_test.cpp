@@ -42,7 +42,7 @@ TEST(Scheduler, Now3x) {
 TEST(Scheduler, Repetitive) {
   int counter = 0;
   Scheduler scheduler;
-  RepetitiveTask task(&scheduler,
+  RepetitiveTask task(scheduler,
                       [&counter] {
                         ++counter;
                         delay(Millis(100));
@@ -75,7 +75,7 @@ TEST(Scheduler, Repetitive) {
 TEST(Scheduler, Periodic) {
   int counter = 0;
   Scheduler scheduler;
-  PeriodicTask task(&scheduler,
+  PeriodicTask task(scheduler,
                     [&counter] {
                       ++counter;
                       delay(Millis(100));
