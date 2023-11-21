@@ -130,18 +130,6 @@ class Task : public Executable {
   std::function<void()> task_;
 };
 
-// Similar to task, but passes the EventID to the function, making it feasible
-// to use a single callback for multiple scheduled events that the callback can
-// distinguish.
-class Callback : public Executable {
- public:
-  Callback(std::function<void(EventID)> task) : task_(task) {}
-  void execute(EventID id) override { task_(id); }
-
- private:
-  std::function<void(EventID)> task_;
-};
-
 // A convenience adapter that allows to schedule repetitive execution of
 // an arbitrary C++ callable. Subsequent executions are scheduled with
 // a constant delay in-between executiions. For example, if the task

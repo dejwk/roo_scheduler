@@ -20,7 +20,7 @@
         "*"
     ],
     "build": {
-        "srcDir": ".",
+        "srcDir": "src",
         "srcFilter": "+<*> -<examples> -<test>"
     },
     "examples": [
