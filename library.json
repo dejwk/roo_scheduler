@@ -1,7 +1,12 @@
 {
     "name": "roo_scheduler",
-    "description": "Arduino-compliant microcontroller library for scheduling delayed and/or repetitive tasks. Works on Espressif boards (e.g. ESP32).",
-    "keywords": ["tasks", "scheduling", "periodic", "delayed"],
+    "description": "Arduino-compliant microcontroller library for scheduling delayed and/or repetitive tasks. Works on boards that support C++ standard library (e.g. Espressif ESP32 family).",
+    "keywords": [
+        "tasks",
+        "scheduling",
+        "periodic",
+        "delayed"
+    ],
     "authors": [
         {
             "name": "Dawid Kurzyniec",
@@ -13,7 +18,7 @@
         "type": "git",
         "url": "https://github.com/dejwk/roo_scheduler"
     },
-    "version": "1.0.2",
+    "version": "1.1.0",
     "homepage": "https://github.com/dejwk/roo_scheduler",
     "frameworks": [
         "Arduino",
