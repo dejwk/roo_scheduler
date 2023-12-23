@@ -147,8 +147,14 @@ class RepetitiveTask : public Executable {
 
   bool is_active() const { return active_; }
 
+  // Starts the task, scheduling the next execution after its regular configured
+  // delay.
   void start() { start(delay_); }
 
+  // Starts the task, scheduling the next execution immediately.
+  void startInstantly() { start(roo_time::Millis(0)); }
+
+  // Starts the task, scheduling the next execution after the specified delay.
   void start(roo_time::Interval initial_delay) {
     active_ = true;
     id_ = scheduler_.scheduleAfter(this, initial_delay);
