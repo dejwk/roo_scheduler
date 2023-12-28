@@ -3,6 +3,21 @@
 
 namespace roo_scheduler {
 
+EventID Scheduler::scheduleOn(Executable* task, roo_time::Uptime when) {
+  EventID id = next_event_id_++;
+  queue_.emplace(id, task, when);
+  return id;
+}
+
+EventID Scheduler::scheduleAfter(Executable* task, roo_time::Interval delay) {
+  EventID id = next_event_id_;
+  ++next_event_id_;
+  // Reserve negative IDs for special use.
+  next_event_id_ &= 0x07FFFFFFF;
+  queue_.emplace(id, task, roo_time::Uptime::Now() + delay);
+  return id;
+}
+
 bool Scheduler::executeEligibleTasks(int max_tasks) {
   while (max_tasks < 0 || max_tasks-- > 0) {
     if (!executeOneEligibleTask()) return true;

@@ -49,22 +49,11 @@ class Scheduler {
 
   // Schedules the specified task to be executed no earlier than at the
   // specified absolute time.
-  EventID scheduleOn(Executable* task, roo_time::Uptime when) {
-    EventID id = next_event_id_++;
-    queue_.emplace(id, task, when);
-    return id;
-  }
+  EventID scheduleOn(Executable* task, roo_time::Uptime when);
 
   // Schedules the specified task to be executed no earlier than after the
   // specified delay.
-  EventID scheduleAfter(Executable* task, roo_time::Interval delay) {
-    EventID id = next_event_id_;
-    ++next_event_id_;
-    // Reserve negative IDs for special use.
-    next_event_id_ &= 0x07FFFFFFF;
-    queue_.emplace(id, task, roo_time::Uptime::Now() + delay);
-    return id;
-  }
+  EventID scheduleAfter(Executable* task, roo_time::Interval delay);
 
   // Schedules the specified task to be executed ASAP.
   EventID scheduleNow(Executable* task) {
