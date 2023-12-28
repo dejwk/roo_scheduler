@@ -2,7 +2,7 @@
 
 #include <functional>
 #include <memory>
-#include <queue>
+#include <vector>
 
 #include "roo_time.h"
 
@@ -82,6 +82,8 @@ class Scheduler {
     Executable* task() const { return task_; }
     EventID id() const { return id_; }
 
+    bool operator<(const Entry& other) { return when() > other.when(); }
+
    private:
     EventID id_;
     Executable* task_;
@@ -92,21 +94,16 @@ class Scheduler {
   // no eligible task.
   bool executeOneEligibleTask();
 
-  friend bool operator<(const Entry& a, const Entry& b);
-
-  // Internally, the queue uses std::vector, so when the number of tasks
-  // is bounded, there will be no dynamic allocation once the underlying
-  // vector reaches sufficient capacity. On the other hand, if tasks are
-  // dynamically allocated, the queue can accommodate arbitrary number
-  // of them as long as there is sufficient memory.
-  std::priority_queue<Entry> queue_;
+  // Entries in the queue_ are stored as a heap. (We're not directly using
+  // std::priority_queue in order to support cancellation; see prune()). Since
+  // the entries are stored in a vector, when the number of tasks is bounded,
+  // there will be no dynamic allocation once the vector reaches sufficient
+  // capacity. At the same time, even if tasks are dynamically allocated, the
+  // queue can accommodate them, as long as there is sufficient memory.
+  std::vector<Entry> queue_;
 
   EventID next_event_id_;
 };
-
-inline bool operator<(const Scheduler::Entry& a, const Scheduler::Entry& b) {
-  return a.when() > b.when();
-}
 
 // A convenience adapter that allows to schedule a one-time execution of
 // an arbitrary C++ callable.
