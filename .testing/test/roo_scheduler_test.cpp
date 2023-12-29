@@ -147,4 +147,26 @@ TEST(Scheduler, SingletonImmediateDestruction) {
   EXPECT_EQ(0, counter);
 }
 
+TEST(Scheduler, SingletonNonImmediateDestruction) {
+  Scheduler scheduler;
+  int counter = 0;
+  SingletonTask task1(scheduler,
+                      [&counter] {
+                        ++counter;
+                        delay(Millis(100));
+                      });
+  {
+    SingletonTask task2(scheduler,
+                        [&counter] {
+                          ++counter;
+                          delay(Millis(100));
+                        });
+    task1.scheduleNow();
+    task2.scheduleNow();
+    // Now, destroy task1.
+  }
+  scheduler.executeEligibleTasks();
+  EXPECT_EQ(1, counter);
+}
+
 }  // namespace roo_scheduler

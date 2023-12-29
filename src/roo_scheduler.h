@@ -4,6 +4,8 @@
 #include <memory>
 #include <vector>
 
+#include "roo_collections.h"
+#include "roo_collections/flat_small_hash_set.h"
 #include "roo_time.h"
 
 // A typical Arduino use case may look like the following:
@@ -77,6 +79,12 @@ class Scheduler {
   // when due.
   void cancel(EventID);
 
+  // Clears all cancelled tasks from the queue. This method has linear
+  // complexity and should be used sparingly.
+  void pruneCanceled();
+
+  bool empty() const { return queue_.empty(); }
+
  private:
   class Entry {
    public:
@@ -95,9 +103,16 @@ class Scheduler {
     roo_time::Uptime when_;
   };
 
+  const Entry& top() const { return queue_.front(); }
+
+  EventID push(Executable* task, roo_time::Uptime when);
+  void pop();
+
   // Returns true if the task has been executed; false if there was
   // no eligible task.
   bool executeOneEligibleTask();
+
+  void pruneUpcomingCanceledTasks();
 
   // Entries in the queue_ are stored as a heap. (We're not directly using
   // std::priority_queue in order to support cancellation; see prune()). Since
@@ -105,9 +120,14 @@ class Scheduler {
   // there will be no dynamic allocation once the vector reaches sufficient
   // capacity. At the same time, even if tasks are dynamically allocated, the
   // queue can accommodate them, as long as there is sufficient memory.
+  //
+  // We maintain the invariant that the top (front) of the queue is a
+  // non-canceled task.
   std::vector<Entry> queue_;
 
   EventID next_event_id_;
+
+  roo_collections::FlatSmallHashSet<EventID> canceled_;
 };
 
 // A convenience adapter that allows to schedule a one-time execution of

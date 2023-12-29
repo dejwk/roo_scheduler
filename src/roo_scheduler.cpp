@@ -5,20 +5,30 @@
 namespace roo_scheduler {
 
 EventID Scheduler::scheduleOn(Executable* task, roo_time::Uptime when) {
-  EventID id = next_event_id_++;
+  return push(task, when);
+}
+
+EventID Scheduler::scheduleAfter(Executable* task, roo_time::Interval delay) {
+  return push(task, roo_time::Uptime::Now() + delay);
+}
+
+EventID Scheduler::push(Executable* task, roo_time::Uptime when) {
+  EventID id = next_event_id_;
+  ++next_event_id_;
+  // Reserve negative IDs for special use.
+  next_event_id_ &= 0x7FFFFFFF;
   queue_.emplace_back(id, task, when);
   std::push_heap(queue_.begin(), queue_.end());
   return id;
 }
 
-EventID Scheduler::scheduleAfter(Executable* task, roo_time::Interval delay) {
-  EventID id = next_event_id_;
-  ++next_event_id_;
-  // Reserve negative IDs for special use.
-  next_event_id_ &= 0x07FFFFFFF;
-  queue_.emplace_back(id, task, roo_time::Uptime::Now() + delay);
-  std::push_heap(queue_.begin(), queue_.end());
-  return id;
+// The queue must be non-empty.
+void Scheduler::pop() {
+  std::pop_heap(queue_.begin(), queue_.end());
+  queue_.pop_back();
+  // Fix the possibly broken invariant - get a non-cancelled task, if exists, at
+  // the top of the queue.
+  pruneUpcomingCanceledTasks();
 }
 
 bool Scheduler::executeEligibleTasks(int max_tasks) {
@@ -32,7 +42,7 @@ roo_time::Uptime Scheduler::GetNextTaskTime() const {
   if (queue_.empty()) {
     return roo_time::Uptime::Max();
   } else {
-    return queue_.front().when();
+    return top().when();
   }
 }
 
@@ -40,23 +50,35 @@ roo_time::Interval Scheduler::GetNextTaskDelay() const {
   if (queue_.empty()) {
     return roo_time::Interval::Max();
   } else {
-    roo_time::Uptime next = queue_.front().when();
+    roo_time::Uptime next = top().when();
     roo_time::Uptime now = roo_time::Uptime::Now();
     return (next < now ? roo_time::Interval() : next - now);
   }
 }
 
 bool Scheduler::executeOneEligibleTask() {
-  if (queue_.empty() || queue_.front().when() > roo_time::Uptime::Now()) {
+  if (queue_.empty() || top().when() > roo_time::Uptime::Now()) {
     return false;
   }
-  const Entry& entry = queue_.front();
+  const Entry& entry = top();
   Executable* task = entry.task();
   EventID id = entry.id();
-  std::pop_heap(queue_.begin(), queue_.end());
-  queue_.pop_back();
+  pop();
   task->execute(id);
   return true;
+}
+
+void Scheduler::pruneUpcomingCanceledTasks() {
+  while (!canceled_.empty()) {
+    if (queue_.empty()) {
+      canceled_.clear();
+      return;
+    }
+    EventID id = queue_.front().id();
+    if (!canceled_.erase(id)) return;
+    std::pop_heap(queue_.begin(), queue_.end());
+    queue_.pop_back();
+  }
 }
 
 void Scheduler::cancel(EventID id) {
@@ -68,9 +90,32 @@ void Scheduler::cancel(EventID id) {
   // can be immediately removed.
   if (queue_.front().id() == id) {
     // Found, indeed!
-    std::pop_heap(queue_.begin(), queue_.end());
-    queue_.pop_back();
+    pop();
     return;
+  }
+  // The task might be scheduled behind others; need to defer cancellation.
+  canceled_.insert(id);
+}
+
+void Scheduler::pruneCanceled() {
+  if (canceled_.empty()) return;
+  bool modified = false;
+  size_t i = 0;
+  while (i < queue_.size()) {
+    if (canceled_.erase(queue_[i].id())) {
+      modified = true;
+      queue_[i] = queue_.back();
+      queue_.pop_back();
+    } else {
+      ++i;
+    }
+    if (canceled_.empty()) break;
+  }
+  // Clear the canceled set, on the off chance that it contained any IDs that
+  // were not actually found in the queue at all.
+  canceled_.clear();
+  if (modified) {
+    std::make_heap(queue_.begin(), queue_.end());
   }
 }
 
@@ -144,21 +189,24 @@ PeriodicTask::~PeriodicTask() {
 }
 
 SingletonTask::SingletonTask(Scheduler& scheduler, std::function<void()> task)
-    : scheduler_(scheduler), task_(task), id_(-1) {}
+    : scheduler_(scheduler), task_(task), id_(-1), scheduled_(false) {}
 
 void SingletonTask::scheduleOn(roo_time::Uptime when) {
   if (scheduled_) scheduler_.cancel(id_);
   id_ = scheduler_.scheduleOn(this, when);
+  scheduled_ = true;
 }
 
 void SingletonTask::scheduleAfter(roo_time::Interval delay) {
   if (scheduled_) scheduler_.cancel(id_);
   id_ = scheduler_.scheduleAfter(this, delay);
+  scheduled_ = true;
 }
 
 void SingletonTask::scheduleNow() {
   if (scheduled_) scheduler_.cancel(id_);
   id_ = scheduler_.scheduleNow(this);
+  scheduled_ = true;
 }
 
 void SingletonTask::execute(EventID id) {
