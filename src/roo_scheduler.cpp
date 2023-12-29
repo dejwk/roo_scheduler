@@ -59,4 +59,19 @@ bool Scheduler::executeOneEligibleTask() {
   return true;
 }
 
+void Scheduler::cancel(EventID id) {
+  if (queue_.empty()) {
+    // There is nothing to cancel.
+    return;
+  }
+  // Opportunistically check if the scheduled run is at the top of the queue and
+  // can be immediately removed.
+  if (queue_.front().id() == id) {
+    // Found, indeed!
+    std::pop_heap(queue_.begin(), queue_.end());
+    queue_.pop_back();
+    return;
+  }
+}
+
 }  // namespace roo_scheduler

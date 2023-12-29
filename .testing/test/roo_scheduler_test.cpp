@@ -97,4 +97,54 @@ TEST(Scheduler, Periodic) {
   EXPECT_EQ(2, counter);
 }
 
+TEST(Scheduler, RepetitiveImmediateDestruction) {
+  Scheduler scheduler;
+  int counter = 0;
+  {
+    RepetitiveTask task(scheduler,
+                        [&counter] {
+                          ++counter;
+                          delay(Millis(100));
+                        },
+                        Millis(1200));
+    task.startInstantly();
+    // Now, destroy the task.
+  }
+  scheduler.executeEligibleTasks();
+  EXPECT_EQ(0, counter);
+}
+
+TEST(Scheduler, PeriodicImmediateDestruction) {
+  Scheduler scheduler;
+  int counter = 0;
+  {
+    PeriodicTask task(scheduler,
+                        [&counter] {
+                          ++counter;
+                          delay(Millis(100));
+                        },
+                        Millis(1200));
+    task.start();
+    // Now, destroy the task.
+  }
+  scheduler.executeEligibleTasks();
+  EXPECT_EQ(0, counter);
+}
+
+TEST(Scheduler, SingletonImmediateDestruction) {
+  Scheduler scheduler;
+  int counter = 0;
+  {
+    SingletonTask task(scheduler,
+                        [&counter] {
+                          ++counter;
+                          delay(Millis(100));
+                        });
+    task.scheduleNow();
+    // Now, destroy the task.
+  }
+  scheduler.executeEligibleTasks();
+  EXPECT_EQ(0, counter);
+}
+
 }  // namespace roo_scheduler

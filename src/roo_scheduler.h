@@ -72,6 +72,11 @@ class Scheduler {
   // executed.
   roo_time::Interval GetNextTaskDelay() const;
 
+  // Indicates that the task scheduled with the given ID should be cancelled.
+  // The task may not be immediately removed from the queue, but it will not run
+  // when due.
+  void cancel(EventID);
+
  private:
   class Entry {
    public:
@@ -135,20 +140,24 @@ class RepetitiveTask : public Executable {
 
   // Starts the task, scheduling the next execution after its regular configured
   // delay.
-  void start() { start(delay_); }
+  bool start() { return start(delay_); }
 
   // Starts the task, scheduling the next execution immediately.
-  void startInstantly() { start(roo_time::Millis(0)); }
+  bool startInstantly() { return start(roo_time::Millis(0)); }
 
   // Starts the task, scheduling the next execution after the specified delay.
-  void start(roo_time::Interval initial_delay) {
+  bool start(roo_time::Interval initial_delay) {
+    if (active_) return false;
+    if (id_ >= 0) scheduler_.cancel(id_);
     active_ = true;
     id_ = scheduler_.scheduleAfter(this, initial_delay);
+    return true;
   }
 
-  void stop() {
+  bool stop() {
+    if (!active_) return false;
     active_ = false;
-    id_ = -1;
+    return true;
   }
 
   void execute(EventID id) override {
@@ -156,6 +165,10 @@ class RepetitiveTask : public Executable {
     task_();
     if (!active_) return;
     id_ = scheduler_.scheduleAfter(this, delay_);
+  }
+
+  ~RepetitiveTask() {
+    if (id_ >= 0) scheduler_.cancel(id_);
   }
 
  private:
@@ -187,15 +200,19 @@ class PeriodicTask : public Executable {
 
   bool is_active() const { return active_; }
 
-  void start(roo_time::Uptime when = roo_time::Uptime::Now()) {
+  bool start(roo_time::Uptime when = roo_time::Uptime::Now()) {
+    if (active_) return false;
+    if (id_ >= 0) scheduler_.cancel(id_);
     active_ = true;
     next_ = when;
     id_ = scheduler_.scheduleOn(this, next_);
+    return true;
   }
 
-  void stop() {
+  bool stop() {
+    if (!active_) return false;
     active_ = false;
-    id_ = -1;
+    return true;
   }
 
   void execute(EventID id) override {
@@ -204,6 +221,10 @@ class PeriodicTask : public Executable {
     next_ += period_;
     if (!active_) return;
     id_ = scheduler_.scheduleOn(this, next_);
+  }
+
+  ~PeriodicTask() {
+    if (id_ >= 0) scheduler_.cancel(id_);
   }
 
  private:
@@ -217,27 +238,21 @@ class PeriodicTask : public Executable {
 
 // A convenience adapter that allows to schedule 'refresh'-type tasks, that can
 // be canceled or rescheduled. If the task is scheduled the second time while
-// its another execution is already pending, that other execution is effectively
-// 'canceled' - i.e. the task will not be triggered on its due time. (The entry
-// is not actually removed from the queue, so the task object cannot be deleted
-// until all its entries are past due and processed).
+// its another execution is already pending, that other execution is canceled.
 class SingletonTask : public Executable {
  public:
   SingletonTask(Scheduler& scheduler, std::function<void()> task)
       : scheduler_(scheduler), task_(task), id_(-1) {}
 
-  bool is_scheduled() const { return id_ >= 0; }
+  bool is_scheduled() const { return scheduled_; }
 
   // (Re)schedules the execution of the task at the specific absolute time.
   //
   // If the task is already scheduled (is_scheduled() returning true), the new
   // entry 'overrides' the previous instance - i.e. the task will only trigger
   // on `when`.
-  //
-  // Note: the previous instance is not deleted from the queue. The task must
-  // stay alive until all previously scheduled instances are past due and
-  // processed.
-  void scheduleOn(roo_time::Uptime when = roo_time::Uptime::Now()) {
+  void scheduleOn(roo_time::Uptime when) {
+    if (scheduled_) scheduler_.cancel(id_);
     id_ = scheduler_.scheduleOn(this, when);
   }
 
@@ -246,32 +261,39 @@ class SingletonTask : public Executable {
   // If the task is already scheduled (is_scheduled() returning true), the new
   // entry 'overrides' the previous instance - i.e. the task will only trigger
   // on `when`.
-  //
-  // Note: the previous instance is not deleted from the queue. The task must
-  // stay alive until all previously scheduled instances are past due and
-  // processed.
   void scheduleAfter(roo_time::Interval delay) {
+    if (scheduled_) scheduler_.cancel(id_);
     id_ = scheduler_.scheduleAfter(this, delay);
   }
 
-  void cancel() { id_ = -1; }
+  // (Re)schedules the execution of the task to run ASAP.
+  //
+  // If the task is already scheduled (is_scheduled() returning true), the new
+  // entry 'overrides' the previous instance - i.e. the task will only trigger
+  // on `when`.
+  void scheduleNow() {
+    if (scheduled_) scheduler_.cancel(id_);
+    id_ = scheduler_.scheduleNow(this);
+  }
 
-  bool isScheduled() const { return id_ >= 0; }
+  void cancel() { scheduled_ = false; }
 
   void execute(EventID id) override {
-    if (id != id_) return;
-    task_();
-    // Note: task may have re-scheduled itself. In this case, just return.
-    // Otherwise, mark as inactive, as we have done our job and aren't
-    // rescheduled.
-    if (id != id_) return;
+    if (!scheduled_ || id != id_) return;
+    scheduled_ = false;
     id_ = -1;
+    task_();
+  }
+
+  ~SingletonTask() {
+    if (id_ >= 0) scheduler_.cancel(id_);
   }
 
  private:
   Scheduler& scheduler_;
   std::function<void()> task_;
   EventID id_;
+  bool scheduled_;
 };
 
 class IteratingTask : public Executable {
@@ -284,22 +306,20 @@ class IteratingTask : public Executable {
 
   IteratingTask(Scheduler& scheduler, Iterator& iterator,
                 std::function<void()> done_cb = std::function<void()>())
-      : scheduler_(scheduler),
-        itr_(iterator),
-        active_(false),
-        done_cb_(done_cb) {}
+      : scheduler_(scheduler), itr_(iterator), id_(-1), done_cb_(done_cb) {}
 
-  void start(roo_time::Uptime when = roo_time::Uptime::Now()) {
-    active_ = true;
-    scheduler_.scheduleOn(this, when);
+  bool start(roo_time::Uptime when = roo_time::Uptime::Now()) {
+    if (is_active()) return false;
+    id_ = scheduler_.scheduleOn(this, when);
+    return true;
   }
 
   void execute(EventID id) override {
     int64_t next_delay_us = itr_.next();
     if (next_delay_us >= 0) {
-      scheduler_.scheduleAfter(this, roo_time::Micros(next_delay_us));
+      id_ = scheduler_.scheduleAfter(this, roo_time::Micros(next_delay_us));
     } else {
-      active_ = false;
+      id_ = -1;
       // This is the last thing we do, so that if the callback invokes our
       // destructor, that's OK. (That said, the callback should also do so at
       // the very end, because the callback is also destructing itself this
@@ -308,12 +328,16 @@ class IteratingTask : public Executable {
     }
   }
 
-  bool is_active() const { return active_; }
+  bool is_active() const { return id_ >= 0; }
+
+  ~IteratingTask() {
+    if (id_ >= 0) scheduler_.cancel(id_);
+  }
 
  private:
   Scheduler& scheduler_;
   Iterator& itr_;
-  bool active_;
+  EventID id_;
 
   // Called when the iterator finishes. Allowed to delete the iterating task.
   std::function<void()> done_cb_;
