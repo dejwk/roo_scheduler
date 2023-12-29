@@ -18,3 +18,9 @@ http_archive(
   url = "https://github.com/dejwk/roo_time/archive/refs/heads/master.zip",
   strip_prefix = "roo_time-master",
 )
+
+http_archive(
+  name = "roo_collections",
+  url = "https://github.com/dejwk/roo_collections/archive/refs/heads/master.zip",
+  strip_prefix = "roo_collections-main",
+)

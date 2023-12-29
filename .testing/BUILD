@@ -9,7 +9,10 @@ cc_library(
     ),
     hdrs = ["src/roo_scheduler.h"],
     includes = ["src"],
-    deps = ["@roo_time//:core"],
+    deps = [
+        "@roo_collections//:roo_collections",
+        "@roo_time//:core"
+    ],
 )
 
 cc_test(
