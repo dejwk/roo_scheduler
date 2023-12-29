@@ -30,13 +30,17 @@
 
 namespace roo_scheduler {
 
-typedef int32_t EventID;
+// Represents a unique task execution identifier.
+using ExecutionID = int32_t;
+
+// Deprecated; prefer ExecutionID.
+using EventID = ExecutionID;
 
 // Abstract interface for executable tasks in the scheduler queue.
 class Executable {
  public:
   virtual ~Executable() = default;
-  virtual void execute(EventID id) = 0;
+  virtual void execute(ExecutionID id) = 0;
 };
 
 // Allows executables to be scheduled at specified delays. Usually you
@@ -47,98 +51,98 @@ class Executable {
 // by calling 'executeEligibleTasks'.
 class Scheduler {
  public:
-  Scheduler() : next_event_id_(0) {}
+  Scheduler() : next_execution_id_(0) {}
 
   // Schedules the specified task to be executed no earlier than at the
   // specified absolute time.
-  EventID scheduleOn(Executable* task, roo_time::Uptime when);
+  ExecutionID scheduleOn(Executable* task, roo_time::Uptime when);
 
   // Schedules the specified task to be executed no earlier than after the
   // specified delay.
-  EventID scheduleAfter(Executable* task, roo_time::Interval delay);
+  ExecutionID scheduleAfter(Executable* task, roo_time::Interval delay);
 
   // Schedules the specified task to be executed ASAP.
-  EventID scheduleNow(Executable* task) {
+  ExecutionID scheduleNow(Executable* task) {
     return scheduleOn(task, roo_time::Uptime::Now());
   }
 
-  // Execute up to max_tasks of eligible tasks. Returns true if all eligible
-  // tasks have been executed; false if some eligible tasks have remained in the
-  // queue.
-  bool executeEligibleTasks(int max_tasks = -1);
+  // Execute up to max_count of eligible task executions. Returns true if the
+  // queue has been cleared; false if some eligible executions have remained in
+  // the queue.
+  bool executeEligibleTasks(int max_count = -1);
 
-  // Returns the time when the next scheduler task will be executed.
-  roo_time::Uptime GetNextTaskTime() const;
+  // Returns the scheduled time of the nearest upcoming task execution.
+  roo_time::Uptime GetNearestExecutionTime() const;
 
-  // Returns the time interval after which the next scheduler task will be
-  // executed.
-  roo_time::Interval GetNextTaskDelay() const;
+  // Returns the time interval until the nearest upcoming task execution.
+  roo_time::Interval GetNearestExecutionDelay() const;
 
-  // Indicates that the task scheduled with the given ID should be canceled.
-  // The task may not be immediately removed from the queue, but it will not run
-  // when due.
+  // Indicates that the specified execution should be canceled.
+  // The execution (and the task) may not be immediately removed from the queue,
+  // but it will not run when due.
   //
   // See also pruneCanceled().
-  void cancel(EventID);
+  void cancel(ExecutionID);
 
-  // Clears all canceled tasks from the queue. This method has linear
+  // Clears all canceled executions from the queue. This method has linear
   // complexity (~3N, when N is the queue size) and should be used sparingly (if
   // at all).
   void pruneCanceled();
 
-  // Returns true if the scheduler queue contains any (non-cancelled)
+  // Returns true if the scheduler queue contains any (non-canceled)
   // task executions.
   bool empty() const { return queue_.empty(); }
 
  private:
   class Entry {
    public:
-    Entry(EventID id, Executable* task, roo_time::Uptime when)
+    Entry(ExecutionID id, Executable* task, roo_time::Uptime when)
         : id_(id), task_(task), when_(when) {}
 
     roo_time::Uptime when() const { return when_; }
     Executable* task() const { return task_; }
-    EventID id() const { return id_; }
+    ExecutionID id() const { return id_; }
 
     bool operator<(const Entry& other) { return when() > other.when(); }
 
    private:
-    EventID id_;
+    ExecutionID id_;
     Executable* task_;
     roo_time::Uptime when_;
   };
 
   const Entry& top() const { return queue_.front(); }
 
-  EventID push(Executable* task, roo_time::Uptime when);
+  ExecutionID push(Executable* task, roo_time::Uptime when);
   void pop();
 
-  // Returns true if the task has been executed; false if there was
-  // no eligible task.
-  bool executeOneEligibleTask();
+  // Returns true if has been executed; false if there was no eligible
+  // execution.
+  bool runOneEligibleExecution();
 
-  void pruneUpcomingCanceledTasks();
+  void pruneUpcomingCanceledExecutions();
 
   // Entries in the queue_ are stored as a heap. (We're not directly using
   // std::priority_queue in order to support cancellation; see prune()). Since
-  // the entries are stored in a vector, when the number of tasks is bounded,
-  // there will be no dynamic allocation once the vector reaches sufficient
-  // capacity. At the same time, even if tasks are dynamically allocated, the
-  // queue can accommodate them, as long as there is sufficient memory.
+  // the entries are stored in a vector, when the number of scheduled executions
+  // is bounded, there will be no dynamic allocation once the vector reaches
+  // sufficient capacity. At the same time, even if executions are dynamically
+  // created, the queue can accommodate them, as long as there is sufficient
+  // amount of memory.
   //
   // We maintain the invariant that the top (front) of the queue is a
-  // non-canceled task.
+  // non-canceled execution.
   std::vector<Entry> queue_;
 
-  EventID next_event_id_;
+  ExecutionID next_execution_id_;
 
-  // Deferred cancellation set, containing IDs of tasks that has been canceled,
-  // yet they may be still somewhere in the queue. These tasks will not be
-  // executed when they become due.
+  // Deferred cancellation set, containing IDs of scheduled executions that have
+  // been canceled. They will not run when due, and the tasks they refer to can
+  // be safely destroyed.
   //
-  // Calling pruneCanceled() removes all canceled items from the queue, and
+  // Calling pruneCanceled() removes all canceled executions from the queue, and
   // clears this set.
-  roo_collections::FlatSmallHashSet<EventID> canceled_;
+  roo_collections::FlatSmallHashSet<ExecutionID> canceled_;
 };
 
 // A convenience adapter that allows to schedule a one-time execution of
@@ -146,7 +150,7 @@ class Scheduler {
 class Task : public Executable {
  public:
   Task(std::function<void()> task) : task_(task) {}
-  void execute(EventID id) override { task_(); }
+  void execute(ExecutionID id) override { task_(); }
 
  private:
   std::function<void()> task_;
@@ -178,14 +182,14 @@ class RepetitiveTask : public Executable {
 
   bool stop();
 
-  void execute(EventID id) override;
+  void execute(ExecutionID id) override;
 
   ~RepetitiveTask();
 
  private:
   Scheduler& scheduler_;
   std::function<void()> task_;
-  EventID id_;
+  ExecutionID id_;
   bool active_;
   roo_time::Interval delay_;
 };
@@ -210,22 +214,23 @@ class PeriodicTask : public Executable {
 
   bool stop();
 
-  void execute(EventID id) override;
+  void execute(ExecutionID id) override;
 
   ~PeriodicTask();
 
  private:
   Scheduler& scheduler_;
   std::function<void()> task_;
-  EventID id_;
+  ExecutionID id_;
   bool active_;
   roo_time::Interval period_;
   roo_time::Uptime next_;
 };
 
 // A convenience adapter that allows to schedule 'refresh'-type tasks, that can
-// be canceled or rescheduled. If the task is scheduled the second time while
-// its another execution is already pending, that other execution is canceled.
+// be canceled or rescheduled. If the task is scheduled for the second time
+// while its another execution is already pending, that other execution is
+// canceled.
 class SingletonTask : public Executable {
  public:
   SingletonTask(Scheduler& scheduler, std::function<void()> task);
@@ -255,14 +260,14 @@ class SingletonTask : public Executable {
 
   void cancel() { scheduled_ = false; }
 
-  void execute(EventID id) override;
+  void execute(ExecutionID id) override;
 
   ~SingletonTask();
 
  private:
   Scheduler& scheduler_;
   std::function<void()> task_;
-  EventID id_;
+  ExecutionID id_;
   bool scheduled_;
 };
 
@@ -279,7 +284,7 @@ class IteratingTask : public Executable {
 
   bool start(roo_time::Uptime when = roo_time::Uptime::Now());
 
-  void execute(EventID id) override;
+  void execute(ExecutionID id) override;
 
   bool is_active() const { return id_ >= 0; }
 
@@ -288,7 +293,7 @@ class IteratingTask : public Executable {
  private:
   Scheduler& scheduler_;
   Iterator& itr_;
-  EventID id_;
+  ExecutionID id_;
 
   // Called when the iterator finishes. Allowed to delete the iterating task.
   std::function<void()> done_cb_;

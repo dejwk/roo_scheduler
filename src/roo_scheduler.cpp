@@ -4,19 +4,20 @@
 
 namespace roo_scheduler {
 
-EventID Scheduler::scheduleOn(Executable* task, roo_time::Uptime when) {
+ExecutionID Scheduler::scheduleOn(Executable* task, roo_time::Uptime when) {
   return push(task, when);
 }
 
-EventID Scheduler::scheduleAfter(Executable* task, roo_time::Interval delay) {
+ExecutionID Scheduler::scheduleAfter(Executable* task,
+                                     roo_time::Interval delay) {
   return push(task, roo_time::Uptime::Now() + delay);
 }
 
-EventID Scheduler::push(Executable* task, roo_time::Uptime when) {
-  EventID id = next_event_id_;
-  ++next_event_id_;
+ExecutionID Scheduler::push(Executable* task, roo_time::Uptime when) {
+  ExecutionID id = next_execution_id_;
+  ++next_execution_id_;
   // Reserve negative IDs for special use.
-  next_event_id_ &= 0x7FFFFFFF;
+  next_execution_id_ &= 0x7FFFFFFF;
   queue_.emplace_back(id, task, when);
   std::push_heap(queue_.begin(), queue_.end());
   return id;
@@ -28,17 +29,17 @@ void Scheduler::pop() {
   queue_.pop_back();
   // Fix the possibly broken invariant - get a non-cancelled task, if exists, at
   // the top of the queue.
-  pruneUpcomingCanceledTasks();
+  pruneUpcomingCanceledExecutions();
 }
 
 bool Scheduler::executeEligibleTasks(int max_tasks) {
   while (max_tasks < 0 || max_tasks-- > 0) {
-    if (!executeOneEligibleTask()) return true;
+    if (!runOneEligibleExecution()) return true;
   }
   return false;
 }
 
-roo_time::Uptime Scheduler::GetNextTaskTime() const {
+roo_time::Uptime Scheduler::GetNearestExecutionTime() const {
   if (queue_.empty()) {
     return roo_time::Uptime::Max();
   } else {
@@ -46,7 +47,7 @@ roo_time::Uptime Scheduler::GetNextTaskTime() const {
   }
 }
 
-roo_time::Interval Scheduler::GetNextTaskDelay() const {
+roo_time::Interval Scheduler::GetNearestExecutionDelay() const {
   if (queue_.empty()) {
     return roo_time::Interval::Max();
   } else {
@@ -56,32 +57,32 @@ roo_time::Interval Scheduler::GetNextTaskDelay() const {
   }
 }
 
-bool Scheduler::executeOneEligibleTask() {
+bool Scheduler::runOneEligibleExecution() {
   if (queue_.empty() || top().when() > roo_time::Uptime::Now()) {
     return false;
   }
   const Entry& entry = top();
   Executable* task = entry.task();
-  EventID id = entry.id();
+  ExecutionID id = entry.id();
   pop();
   task->execute(id);
   return true;
 }
 
-void Scheduler::pruneUpcomingCanceledTasks() {
+void Scheduler::pruneUpcomingCanceledExecutions() {
   while (!canceled_.empty()) {
     if (queue_.empty()) {
       canceled_.clear();
       return;
     }
-    EventID id = queue_.front().id();
+    ExecutionID id = queue_.front().id();
     if (!canceled_.erase(id)) return;
     std::pop_heap(queue_.begin(), queue_.end());
     queue_.pop_back();
   }
 }
 
-void Scheduler::cancel(EventID id) {
+void Scheduler::cancel(ExecutionID id) {
   if (queue_.empty()) {
     // There is nothing to cancel.
     return;
@@ -142,7 +143,7 @@ bool RepetitiveTask::stop() {
   return true;
 }
 
-void RepetitiveTask::execute(EventID id) {
+void RepetitiveTask::execute(ExecutionID id) {
   if (id != id_ || !active_) return;
   task_();
   if (!active_) return;
@@ -176,7 +177,7 @@ bool PeriodicTask::stop() {
   return true;
 }
 
-void PeriodicTask::execute(EventID id) {
+void PeriodicTask::execute(ExecutionID id) {
   if (id != id_ || !active_) return;
   task_();
   next_ += period_;
@@ -209,7 +210,7 @@ void SingletonTask::scheduleNow() {
   scheduled_ = true;
 }
 
-void SingletonTask::execute(EventID id) {
+void SingletonTask::execute(ExecutionID id) {
   if (!scheduled_ || id != id_) return;
   scheduled_ = false;
   id_ = -1;
@@ -230,7 +231,7 @@ bool IteratingTask::start(roo_time::Uptime when) {
   return true;
 }
 
-void IteratingTask::execute(EventID id) {
+void IteratingTask::execute(ExecutionID id) {
   int64_t next_delay_us = itr_.next();
   if (next_delay_us >= 0) {
     id_ = scheduler_.scheduleAfter(this, roo_time::Micros(next_delay_us));
