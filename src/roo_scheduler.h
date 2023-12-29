@@ -74,15 +74,20 @@ class Scheduler {
   // executed.
   roo_time::Interval GetNextTaskDelay() const;
 
-  // Indicates that the task scheduled with the given ID should be cancelled.
+  // Indicates that the task scheduled with the given ID should be canceled.
   // The task may not be immediately removed from the queue, but it will not run
   // when due.
+  //
+  // See also pruneCanceled().
   void cancel(EventID);
 
-  // Clears all cancelled tasks from the queue. This method has linear
-  // complexity and should be used sparingly.
+  // Clears all canceled tasks from the queue. This method has linear
+  // complexity (~3N, when N is the queue size) and should be used sparingly (if
+  // at all).
   void pruneCanceled();
 
+  // Returns true if the scheduler queue contains any (non-cancelled)
+  // task executions.
   bool empty() const { return queue_.empty(); }
 
  private:
@@ -127,6 +132,12 @@ class Scheduler {
 
   EventID next_event_id_;
 
+  // Deferred cancellation set, containing IDs of tasks that has been canceled,
+  // yet they may be still somewhere in the queue. These tasks will not be
+  // executed when they become due.
+  //
+  // Calling pruneCanceled() removes all canceled items from the queue, and
+  // clears this set.
   roo_collections::FlatSmallHashSet<EventID> canceled_;
 };
 
