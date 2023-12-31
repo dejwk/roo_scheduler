@@ -51,7 +51,8 @@ class Executable {
 // by calling 'executeEligibleTasks'.
 class Scheduler {
  public:
-  Scheduler() : next_execution_id_(0) {}
+  // Creates a scheduler.
+  Scheduler();
 
   // Schedules the specified task to be executed no earlier than at the
   // specified absolute time.
