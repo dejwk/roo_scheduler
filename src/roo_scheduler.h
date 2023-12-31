@@ -103,7 +103,10 @@ class Scheduler {
     Executable* task() const { return task_; }
     ExecutionID id() const { return id_; }
 
-    bool operator<(const Entry& other) { return when() > other.when(); }
+    bool operator<(const Entry& other) {
+      return when() > other.when() ||
+             (when() == other.when() && id() - other.id() > 0);
+    }
 
    private:
     ExecutionID id_;
