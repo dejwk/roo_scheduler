@@ -4,7 +4,7 @@
 
 namespace roo_scheduler {
 
-Scheduler::Scheduler() : queue_(), canceled_(0), next_execution_id_(0) {}
+Scheduler::Scheduler() : queue_(), next_execution_id_(0), canceled_(0) {}
 
 ExecutionID Scheduler::scheduleOn(Executable* task, roo_time::Uptime when) {
   return push(task, when);
