@@ -168,4 +168,42 @@ TEST(Scheduler, SingletonNonImmediateDestruction) {
   EXPECT_EQ(1, counter);
 }
 
+struct TestTask : public Executable {
+  TestTask(std::vector<ExecutionID>& observed) : observed(observed) {}
+  void execute(ExecutionID id) { observed.push_back(id); }
+  std::vector<ExecutionID>& observed;
+};
+
+struct Experiment {
+  int64_t micros;
+  ExecutionID id;
+};
+
+TEST(Scheduler, LargeRandomTest) {
+  Scheduler scheduler;
+  std::vector<ExecutionID> observed;
+
+  TestTask test(observed);
+
+  std::vector<Experiment> expected;
+  for (int i = 0; i < 10000; ++i) {
+    int64_t micros = rand() % 2000000;
+    ExecutionID id = scheduler.scheduleAfter(&test, Micros(micros));
+    expected.push_back(Experiment{.micros = micros, .id = id});
+  }
+  std::sort(expected.begin(), expected.end(),
+            [](const Experiment& a, const Experiment& b) {
+              return a.micros < b.micros ||
+                     (a.micros == b.micros && a.id < b.id);
+            });
+  delay(Seconds(2));
+  int i = 0;
+  while (!scheduler.executeEligibleTasks(1)) {
+    EXPECT_EQ(observed[i], expected[i].id)
+        << "at " << i << "; expected time: " << expected[i].micros;
+    ++i;
+  }
+  ASSERT_EQ(i, 10000);
+}
+
 }  // namespace roo_scheduler
