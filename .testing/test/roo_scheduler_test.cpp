@@ -179,6 +179,26 @@ struct Experiment {
   ExecutionID id;
 };
 
+TEST(Scheduler, StableScheduleOrder) {
+  Scheduler scheduler;
+  std::vector<ExecutionID> observed;
+  std::vector<ExecutionID> expected;
+  TestTask test(observed);
+
+  Uptime now = Uptime::Now();
+  for (int i = 0; i < 100; ++i) {
+    ExecutionID id = scheduler.scheduleOn(&test, now + Micros(100));
+    expected.push_back(id);
+  }
+  delay(Seconds(2));
+  int i = 0;
+  while (!scheduler.executeEligibleTasks(1)) {
+    EXPECT_EQ(observed[i], expected[i]) << "at " << i;
+    ++i;
+  }
+  ASSERT_EQ(i, 100);
+}
+
 TEST(Scheduler, LargeRandomTest) {
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
