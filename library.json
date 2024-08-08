@@ -9,8 +9,8 @@
     ],
     "authors": [
         {
-            "name": "Dawid Kurzyniec",
-            "email": "dawid.kurzyniec@gmail.com",
+            "name": "Dejwk",
+            "email": "dejwk.oss@gmail.com",
             "maintainer": true
         }
     ],
@@ -18,7 +18,7 @@
         "type": "git",
         "url": "https://github.com/dejwk/roo_scheduler"
     },
-    "version": "1.2.0",
+    "version": "1.2.1",
     "homepage": "https://github.com/dejwk/roo_scheduler",
     "frameworks": [
         "Arduino",
@@ -35,12 +35,12 @@
         {
             "owner": "dejwk",
             "name": "roo_time",
-            "version": "^1.0.1"
+            "version": ">=1.0.7"
         },
         {
             "owner": "dejwk",
             "name": "roo_collections",
-            "version": "^1.1.5"
+            "version": ">=1.1.5"
         }
     ]
 }
