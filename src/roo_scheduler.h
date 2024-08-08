@@ -67,6 +67,18 @@ class Scheduler {
     return scheduleOn(task, roo_time::Uptime::Now());
   }
 
+  // Execute up to max_count of eligible task executions, whose scheduled time
+  // is not greater than the time of invocation. Returns true if the queue has
+  // been cleared; false if some eligible executions have remained in the queue.
+  bool executeEligibleTasksUpToNow(int max_count = -1) {
+    return executeEligibleTasksUpTo(roo_time::Uptime::Now(), max_count);
+  }
+
+  // Execute up to max_count of eligible task executions, whose scheduled time
+  // is not greater than the specified deadline. Returns true if the queue has
+  // been cleared; false if some eligible executions have remained in the queue.
+  bool executeEligibleTasksUpTo(roo_time::Uptime deadline, int max_count = -1);
+
   // Execute up to max_count of eligible task executions. Returns true if the
   // queue has been cleared; false if some eligible executions have remained in
   // the queue.
@@ -103,6 +115,9 @@ class Scheduler {
   // e.g. from loop().
   void delay(roo_time::Interval delay);
 
+  // Similar to delay() above, but blocks until the specified deadline passes.
+  void delayUntil(roo_time::Uptime deadline);
+
   // Enters the 'event loop' mode, executing scheduled tasks. This method
   // never returns. It acts as an infinite delay(). It can be used to implement
   // purely event-driven apps, where the scheduled tasks are the only thing that
@@ -137,7 +152,7 @@ class Scheduler {
 
   // Returns true if has been executed; false if there was no eligible
   // execution.
-  bool runOneEligibleExecution();
+  bool runOneEligibleExecution(roo_time::Uptime deadline);
 
   void pruneUpcomingCanceledExecutions();
 
