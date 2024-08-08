@@ -41,7 +41,7 @@ bool Scheduler::executeEligibleTasks(int max_tasks) {
   return false;
 }
 
-roo_time::Uptime Scheduler::GetNearestExecutionTime() const {
+roo_time::Uptime Scheduler::getNearestExecutionTime() const {
   if (queue_.empty()) {
     return roo_time::Uptime::Max();
   } else {
@@ -49,7 +49,7 @@ roo_time::Uptime Scheduler::GetNearestExecutionTime() const {
   }
 }
 
-roo_time::Interval Scheduler::GetNearestExecutionDelay() const {
+roo_time::Interval Scheduler::getNearestExecutionDelay() const {
   if (queue_.empty()) {
     return roo_time::Interval::Max();
   } else {
@@ -119,6 +119,22 @@ void Scheduler::pruneCanceled() {
   canceled_.clear();
   if (modified) {
     std::make_heap(queue_.begin(), queue_.end());
+  }
+}
+
+void Scheduler::delay(roo_time::Interval delay) {
+  roo_time::Uptime now = roo_time::Uptime::Now();
+  roo_time::Uptime deadline = now + delay;
+  while (now < deadline) {
+    while (true) {
+      executeEligibleTasks(1);
+      now = roo_time::Uptime::Now();
+      if (now >= deadline) return;
+    }
+    roo_time::Interval next_delay =
+        std::min(getNearestExecutionDelay(), deadline - now);
+    roo_time::Delay(next_delay);
+    now = roo_time::Uptime::Now();
   }
 }
 

@@ -73,10 +73,10 @@ class Scheduler {
   bool executeEligibleTasks(int max_count = -1);
 
   // Returns the scheduled time of the nearest upcoming task execution.
-  roo_time::Uptime GetNearestExecutionTime() const;
+  roo_time::Uptime getNearestExecutionTime() const;
 
   // Returns the time interval until the nearest upcoming task execution.
-  roo_time::Interval GetNearestExecutionDelay() const;
+  roo_time::Interval getNearestExecutionDelay() const;
 
   // Indicates that the specified execution should be canceled.
   // The execution (and the task) may not be immediately removed from the queue,
@@ -93,6 +93,15 @@ class Scheduler {
   // Returns true if the scheduler queue contains any (non-canceled)
   // task executions.
   bool empty() const { return queue_.empty(); }
+
+  // Blocks for at least the delay (similarly to roo_time::Delay(), or
+  // Arduino delay()), except that it keeps executing scheduled work.
+  //
+  // Caution: since the scheduled tasks are executing with call stack that
+  // begins at the call site of this method, stack overflow is more likely
+  // than in the standard scenario of calling scheduleEligibleTasks() directly
+  // e.g. from loop().
+  void delay(roo_time::Interval delay);
 
  private:
   class Entry {
