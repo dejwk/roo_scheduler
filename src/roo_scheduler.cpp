@@ -138,6 +138,13 @@ void Scheduler::delay(roo_time::Interval delay) {
   }
 }
 
+void Scheduler::run() {
+  while (true) {
+    executeEligibleTasks();
+    roo_time::Delay(getNearestExecutionDelay());
+  }
+}
+
 RepetitiveTask::RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
                                roo_time::Interval delay)
     : scheduler_(scheduler),

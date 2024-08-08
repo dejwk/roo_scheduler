@@ -103,6 +103,12 @@ class Scheduler {
   // e.g. from loop().
   void delay(roo_time::Interval delay);
 
+  // Enters the 'event loop' mode, executing scheduled tasks. This method
+  // never returns. It acts as an infinite delay(). It can be used to implement
+  // purely event-driven apps, where the scheduled tasks are the only thing that
+  // executes (besides interrupt handlers).
+  void run();
+
  private:
   class Entry {
    public:
