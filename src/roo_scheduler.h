@@ -134,15 +134,19 @@ class Scheduler {
     Executable* task() const { return task_; }
     ExecutionID id() const { return id_; }
 
-    bool operator<(const Entry& other) {
-      return when() > other.when() ||
-             (when() == other.when() && id() - other.id() > 0);
-    }
-
    private:
+    friend struct TimeComparator;
+
     ExecutionID id_;
     Executable* task_;
     roo_time::Uptime when_;
+  };
+
+  struct TimeComparator {
+    bool operator()(const Entry& a, const Entry& b) {
+      return a.when() > b.when() ||
+             (a.when() == b.when() && a.id() - b.id() > 0);
+    }
   };
 
   const Entry& top() const { return queue_.front(); }

@@ -21,13 +21,13 @@ ExecutionID Scheduler::push(Executable* task, roo_time::Uptime when) {
   // Reserve negative IDs for special use.
   next_execution_id_ &= 0x7FFFFFFF;
   queue_.emplace_back(id, task, when);
-  std::push_heap(queue_.begin(), queue_.end());
+  std::push_heap(queue_.begin(), queue_.end(), TimeComparator());
   return id;
 }
 
 // The queue must be non-empty.
 void Scheduler::pop() {
-  std::pop_heap(queue_.begin(), queue_.end());
+  std::pop_heap(queue_.begin(), queue_.end(), TimeComparator());
   queue_.pop_back();
   // Fix the possibly broken invariant - get a non-cancelled task, if exists, at
   // the top of the queue.
@@ -88,7 +88,7 @@ void Scheduler::pruneUpcomingCanceledExecutions() {
     }
     ExecutionID id = queue_.front().id();
     if (!canceled_.erase(id)) return;
-    std::pop_heap(queue_.begin(), queue_.end());
+    std::pop_heap(queue_.begin(), queue_.end(), TimeComparator());
     queue_.pop_back();
   }
 }
@@ -127,7 +127,7 @@ void Scheduler::pruneCanceled() {
   // were not actually found in the queue at all.
   canceled_.clear();
   if (modified) {
-    std::make_heap(queue_.begin(), queue_.end());
+    std::make_heap(queue_.begin(), queue_.end(), TimeComparator());
   }
 }
 
