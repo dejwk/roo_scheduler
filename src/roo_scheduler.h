@@ -28,6 +28,10 @@
 //   scheduler.executeEligibleTasks();
 // }
 
+#ifndef ROO_SCHEDULER_IGNORE_PRIORITY
+#define ROO_SCHEDULER_IGNORE_PRIORITY 0
+#endif
+
 namespace roo_scheduler {
 
 // Represents a unique task execution identifier.
@@ -35,6 +39,17 @@ using ExecutionID = int32_t;
 
 // Deprecated; prefer ExecutionID.
 using EventID = ExecutionID;
+
+enum Priority {
+  PRIORITY_MINIMUM = 0,
+  PRIORITY_BACKGROUND = 1,
+  PRIORITY_REDUCED = 2,
+  PRIORITY_NORMAL = 3,
+  PRIORITY_ELEVATED = 4,
+  PRIORITY_SENSITIVE = 5,
+  PRIORITY_CRITICAL = 6,
+  PRIORITY_MAXIMUM = 7
+};
 
 // Abstract interface for executable tasks in the scheduler queue.
 class Executable {
@@ -56,14 +71,17 @@ class Scheduler {
 
   // Schedules the specified task to be executed no earlier than at the
   // specified absolute time.
-  ExecutionID scheduleOn(Executable* task, roo_time::Uptime when);
+  ExecutionID scheduleOn(Executable* task, roo_time::Uptime when,
+                         Priority priority = PRIORITY_NORMAL);
 
   // Schedules the specified task to be executed no earlier than after the
   // specified delay.
-  ExecutionID scheduleAfter(Executable* task, roo_time::Interval delay);
+  ExecutionID scheduleAfter(Executable* task, roo_time::Interval delay,
+                            Priority priority = PRIORITY_NORMAL);
 
   // Schedules the specified task to be executed ASAP.
-  ExecutionID scheduleNow(Executable* task) {
+  ExecutionID scheduleNow(Executable* task,
+                          Priority priority = PRIORITY_NORMAL) {
     return scheduleOn(task, roo_time::Uptime::Now());
   }
 
@@ -127,12 +145,27 @@ class Scheduler {
  private:
   class Entry {
    public:
-    Entry(ExecutionID id, Executable* task, roo_time::Uptime when)
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+    Entry(ExecutionID id, Executable* task, roo_time::Uptime when,
+          Priority priority)
+        : id_(id), task_(task), when_(when), priority_(priority) {}
+#else
+    Entry(ExecutionID id, Executable* task, roo_time::Uptime when,
+          Priority priority)
         : id_(id), task_(task), when_(when) {}
+#endif
 
     roo_time::Uptime when() const { return when_; }
     Executable* task() const { return task_; }
     ExecutionID id() const { return id_; }
+
+    Priority priority() const {
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+      return priority_;
+#else
+      return PRIORITY_NORMAL;
+#endif
+    }
 
    private:
     friend struct TimeComparator;
@@ -140,6 +173,10 @@ class Scheduler {
     ExecutionID id_;
     Executable* task_;
     roo_time::Uptime when_;
+
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+    Priority priority_;
+#endif
   };
 
   struct TimeComparator {
@@ -149,16 +186,19 @@ class Scheduler {
     }
   };
 
-  const Entry& top() const { return queue_.front(); }
+  struct PriorityComparator {
+    bool operator()(const Entry& a, const Entry& b) {
+      return a.priority() < b.priority() ||
+             (a.priority() == b.priority() && a.id() - b.id() > 0);
+    }
+  };
 
-  ExecutionID push(Executable* task, roo_time::Uptime when);
+  ExecutionID push(Executable* task, roo_time::Uptime when, Priority priority);
   void pop();
 
   // Returns true if has been executed; false if there was no eligible
   // execution.
   bool runOneEligibleExecution(roo_time::Uptime deadline);
-
-  void pruneUpcomingCanceledExecutions();
 
   // Entries in the queue_ are stored as a heap. (We're not directly using
   // std::priority_queue in order to support cancellation; see prune()). Since
@@ -171,6 +211,12 @@ class Scheduler {
   // We maintain the invariant that the top (front) of the queue is a
   // non-canceled execution.
   std::vector<Entry> queue_;
+
+  // Tasks that are due.
+  //
+  // We maintain the invariant that the top (front) of the queue is a
+  // non-canceled execution.
+  std::vector<Entry> ready_;
 
   ExecutionID next_execution_id_;
 
@@ -205,6 +251,7 @@ class RepetitiveTask : public Executable {
                  roo_time::Interval delay);
 
   bool is_active() const { return active_; }
+  Priority priority() const { return priority_; }
 
   // Starts the task, scheduling the next execution after its regular configured
   // delay. Returns true on success, false if the task had already been started.
@@ -222,6 +269,8 @@ class RepetitiveTask : public Executable {
 
   void execute(ExecutionID id) override;
 
+  void setPriority(Priority priority) { priority_ = priority; }
+
   ~RepetitiveTask();
 
  private:
@@ -229,6 +278,7 @@ class RepetitiveTask : public Executable {
   std::function<void()> task_;
   ExecutionID id_;
   bool active_;
+  Priority priority_;
   roo_time::Interval delay_;
 };
 
@@ -280,21 +330,22 @@ class SingletonTask : public Executable {
   // If the task is already scheduled (is_scheduled() returning true), the new
   // entry 'overrides' the previous instance - i.e. the task will only trigger
   // on `when`.
-  void scheduleOn(roo_time::Uptime when);
+  void scheduleOn(roo_time::Uptime when, Priority priority = PRIORITY_NORMAL);
 
   // (Re)schedules the execution of the task at the specified delay.
   //
   // If the task is already scheduled (is_scheduled() returning true), the new
   // entry 'overrides' the previous instance - i.e. the task will only trigger
   // on `when`.
-  void scheduleAfter(roo_time::Interval delay);
+  void scheduleAfter(roo_time::Interval delay,
+                     Priority priority = PRIORITY_NORMAL);
 
   // (Re)schedules the execution of the task to run ASAP.
   //
   // If the task is already scheduled (is_scheduled() returning true), the new
   // entry 'overrides' the previous instance - i.e. the task will only trigger
   // on `when`.
-  void scheduleNow();
+  void scheduleNow(Priority priority = PRIORITY_NORMAL);
 
   void cancel() { scheduled_ = false; }
 

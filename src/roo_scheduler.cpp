@@ -6,21 +6,23 @@ namespace roo_scheduler {
 
 Scheduler::Scheduler() : queue_(), next_execution_id_(0), canceled_(0) {}
 
-ExecutionID Scheduler::scheduleOn(Executable* task, roo_time::Uptime when) {
-  return push(task, when);
+ExecutionID Scheduler::scheduleOn(Executable* task, roo_time::Uptime when,
+                                  Priority priority) {
+  return push(task, when, priority);
 }
 
-ExecutionID Scheduler::scheduleAfter(Executable* task,
-                                     roo_time::Interval delay) {
-  return push(task, roo_time::Uptime::Now() + delay);
+ExecutionID Scheduler::scheduleAfter(Executable* task, roo_time::Interval delay,
+                                     Priority priority) {
+  return push(task, roo_time::Uptime::Now() + delay, priority);
 }
 
-ExecutionID Scheduler::push(Executable* task, roo_time::Uptime when) {
+ExecutionID Scheduler::push(Executable* task, roo_time::Uptime when,
+                            Priority priority) {
   ExecutionID id = next_execution_id_;
   ++next_execution_id_;
   // Reserve negative IDs for special use.
   next_execution_id_ &= 0x7FFFFFFF;
-  queue_.emplace_back(id, task, when);
+  queue_.emplace_back(id, task, when, priority);
   std::push_heap(queue_.begin(), queue_.end(), TimeComparator());
   return id;
 }
@@ -31,7 +33,16 @@ void Scheduler::pop() {
   queue_.pop_back();
   // Fix the possibly broken invariant - get a non-cancelled task, if exists, at
   // the top of the queue.
-  pruneUpcomingCanceledExecutions();
+  while (!canceled_.empty()) {
+    if (queue_.empty()) {
+      canceled_.clear();
+      return;
+    }
+    ExecutionID id = queue_.front().id();
+    if (!canceled_.erase(id)) return;
+    std::pop_heap(queue_.begin(), queue_.end(), TimeComparator());
+    queue_.pop_back();
+  }
 }
 
 bool Scheduler::executeEligibleTasksUpTo(roo_time::Uptime deadline,
@@ -50,47 +61,49 @@ bool Scheduler::executeEligibleTasks(int max_tasks) {
 }
 
 roo_time::Uptime Scheduler::getNearestExecutionTime() const {
-  if (queue_.empty()) {
-    return roo_time::Uptime::Max();
+  if (!ready_.empty()) {
+    return roo_time::Uptime::Now();
+  } else if (!queue_.empty()) {
+    return queue_.front().when();
   } else {
-    return top().when();
+    return roo_time::Uptime::Max();
   }
 }
 
 roo_time::Interval Scheduler::getNearestExecutionDelay() const {
-  if (queue_.empty()) {
-    return roo_time::Interval::Max();
-  } else {
-    roo_time::Uptime next = top().when();
+  if (!ready_.empty()) {
+    return roo_time::Interval();
+  } else if (!queue_.empty()) {
+    roo_time::Uptime next = queue_.front().when();
     roo_time::Uptime now = roo_time::Uptime::Now();
     return (next < now ? roo_time::Interval() : next - now);
+  } else {
+    return roo_time::Interval::Max();
   }
 }
 
 bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline) {
-  if (queue_.empty() || top().when() > deadline ||
-      top().when() > roo_time::Uptime::Now()) {
-    return false;
-  }
-  const Entry& entry = top();
-  Executable* task = entry.task();
-  ExecutionID id = entry.id();
-  pop();
-  task->execute(id);
-  return true;
-}
+  // Move all due tasks to the ready queue.
+  roo_time::Uptime now = roo_time::Uptime::Now();
 
-void Scheduler::pruneUpcomingCanceledExecutions() {
-  while (!canceled_.empty()) {
-    if (queue_.empty()) {
-      canceled_.clear();
-      return;
-    }
-    ExecutionID id = queue_.front().id();
-    if (!canceled_.erase(id)) return;
-    std::pop_heap(queue_.begin(), queue_.end(), TimeComparator());
-    queue_.pop_back();
+  while (!queue_.empty() && queue_.front().when() <= deadline &&
+         queue_.front().when() <= now) {
+    ready_.push_back(queue_.front());
+    std::push_heap(ready_.begin(), ready_.end(), PriorityComparator());
+    pop();
   }
+  while (!ready_.empty()) {
+    const Entry& entry = ready_.front();
+    Executable* task = entry.task();
+    ExecutionID id = entry.id();
+    std::pop_heap(ready_.begin(), ready_.end(), PriorityComparator());
+    ready_.pop_back();
+    if (!canceled_.erase(id)) {
+      task->execute(id);
+      return true;
+    }
+  }
+  return false;
 }
 
 void Scheduler::cancel(ExecutionID id) {
@@ -161,6 +174,7 @@ RepetitiveTask::RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
       task_(task),
       id_(-1),
       active_(false),
+      priority_(PRIORITY_NORMAL),
       delay_(delay) {}
 
 // Starts the task, scheduling the next execution after the specified delay.
@@ -168,7 +182,7 @@ bool RepetitiveTask::start(roo_time::Interval initial_delay) {
   if (active_) return false;
   if (id_ >= 0) scheduler_.cancel(id_);
   active_ = true;
-  id_ = scheduler_.scheduleAfter(this, initial_delay);
+  id_ = scheduler_.scheduleAfter(this, initial_delay, priority_);
   return true;
 }
 
@@ -182,7 +196,7 @@ void RepetitiveTask::execute(ExecutionID id) {
   if (id != id_ || !active_) return;
   task_();
   if (!active_) return;
-  id_ = scheduler_.scheduleAfter(this, delay_);
+  id_ = scheduler_.scheduleAfter(this, delay_, priority_);
 }
 
 RepetitiveTask::~RepetitiveTask() {
@@ -227,21 +241,21 @@ PeriodicTask::~PeriodicTask() {
 SingletonTask::SingletonTask(Scheduler& scheduler, std::function<void()> task)
     : scheduler_(scheduler), task_(task), id_(-1), scheduled_(false) {}
 
-void SingletonTask::scheduleOn(roo_time::Uptime when) {
+void SingletonTask::scheduleOn(roo_time::Uptime when, Priority priority) {
   if (scheduled_) scheduler_.cancel(id_);
-  id_ = scheduler_.scheduleOn(this, when);
+  id_ = scheduler_.scheduleOn(this, when, priority);
   scheduled_ = true;
 }
 
-void SingletonTask::scheduleAfter(roo_time::Interval delay) {
+void SingletonTask::scheduleAfter(roo_time::Interval delay, Priority priority) {
   if (scheduled_) scheduler_.cancel(id_);
-  id_ = scheduler_.scheduleAfter(this, delay);
+  id_ = scheduler_.scheduleAfter(this, delay, priority);
   scheduled_ = true;
 }
 
-void SingletonTask::scheduleNow() {
+void SingletonTask::scheduleNow(Priority priority) {
   if (scheduled_) scheduler_.cancel(id_);
-  id_ = scheduler_.scheduleNow(this);
+  id_ = scheduler_.scheduleNow(this, priority);
   scheduled_ = true;
 }
 
