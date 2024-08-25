@@ -26,7 +26,10 @@
 // void loop() {
 //   // Actually execute the foo_task when due.
 //   scheduler.executeEligibleTasks();
+//   // ... other work
 // }
+//
+// Also, see examples.
 
 #ifndef ROO_SCHEDULER_IGNORE_PRIORITY
 #define ROO_SCHEDULER_IGNORE_PRIORITY 0
@@ -88,19 +91,25 @@ class Scheduler {
   // Execute up to max_count of eligible task executions, whose scheduled time
   // is not greater than the time of invocation. Returns true if the queue has
   // been cleared; false if some eligible executions have remained in the queue.
-  bool executeEligibleTasksUpToNow(int max_count = -1) {
-    return executeEligibleTasksUpTo(roo_time::Uptime::Now(), max_count);
+  bool executeEligibleTasksUpToNow(Priority min_priority, int max_count = -1) {
+    return executeEligibleTasksUpTo(roo_time::Uptime::Now(), min_priority,
+                                    max_count);
   }
 
   // Execute up to max_count of eligible task executions, whose scheduled time
   // is not greater than the specified deadline. Returns true if the queue has
   // been cleared; false if some eligible executions have remained in the queue.
-  bool executeEligibleTasksUpTo(roo_time::Uptime deadline, int max_count = -1);
+  bool executeEligibleTasksUpTo(roo_time::Uptime deadline,
+                                Priority min_priority, int max_count = -1);
 
   // Execute up to max_count of eligible task executions. Returns true if the
   // queue has been cleared; false if some eligible executions have remained in
   // the queue.
-  bool executeEligibleTasks(int max_count = -1);
+  bool executeEligibleTasks(Priority min_priority, int max_count = -1);
+
+  bool executeEligibleTasks(int max_count = -1) {
+    return executeEligibleTasks(PRIORITY_NORMAL, max_count);
+  }
 
   // Returns the scheduled time of the nearest upcoming task execution.
   roo_time::Uptime getNearestExecutionTime() const;
@@ -120,21 +129,32 @@ class Scheduler {
   // at all).
   void pruneCanceled();
 
-  // Returns true if the scheduler queue contains any (non-canceled)
-  // task executions.
+  // Returns false if the scheduler queue contains any (non-canceled)
+  // task executions, true otherwise.
   bool empty() const { return queue_.empty(); }
 
   // Blocks for at least the delay (similarly to roo_time::Delay(), or
   // Arduino delay()), except that it keeps executing scheduled work.
   //
+  // Tasks with scheduled execution time less or equal to now + delay, and
+  // priority equal or larger than min_priority, are guaranteed to execute
+  // before this method returns. Lower priority overdue tasks might not be
+  // executed.
+  //
   // Caution: since the scheduled tasks are executing with call stack that
   // begins at the call site of this method, stack overflow is more likely
   // than in the standard scenario of calling scheduleEligibleTasks() directly
   // e.g. from loop().
-  void delay(roo_time::Interval delay);
+  void delay(roo_time::Interval delay, Priority min_priority = PRIORITY_NORMAL);
 
   // Similar to delay() above, but blocks until the specified deadline passes.
-  void delayUntil(roo_time::Uptime deadline);
+  //
+  // Tasks with scheduled execution time less or equal to the deadline, and
+  // priority equal or larger than min_priority, are guaranteed to execute
+  // before this method returns. Lower priority overdue tasks might not be
+  // executed.
+  void delayUntil(roo_time::Uptime deadline,
+                  Priority min_priority = PRIORITY_NORMAL);
 
   // Enters the 'event loop' mode, executing scheduled tasks. This method
   // never returns. It acts as an infinite delay(). It can be used to implement
@@ -179,6 +199,7 @@ class Scheduler {
 #endif
   };
 
+  // Orders scheduled tasks in the queue by their nearest execution time.
   struct TimeComparator {
     bool operator()(const Entry& a, const Entry& b) {
       return a.when() > b.when() ||
@@ -186,10 +207,13 @@ class Scheduler {
     }
   };
 
+  // Used for tasks that are already due, ordering them by priority.
   struct PriorityComparator {
     bool operator()(const Entry& a, const Entry& b) {
       return a.priority() < b.priority() ||
-             (a.priority() == b.priority() && a.id() - b.id() > 0);
+             (a.priority() == b.priority() &&
+              (a.when() > b.when() ||
+               (a.when() == b.when() && a.id() - b.id() > 0)));
     }
   };
 
@@ -198,7 +222,8 @@ class Scheduler {
 
   // Returns true if has been executed; false if there was no eligible
   // execution.
-  bool runOneEligibleExecution(roo_time::Uptime deadline);
+  bool runOneEligibleExecution(roo_time::Uptime deadline,
+                               Priority min_priority);
 
   // Entries in the queue_ are stored as a heap. (We're not directly using
   // std::priority_queue in order to support cancellation; see prune()). Since
@@ -248,9 +273,10 @@ class Task : public Executable {
 class RepetitiveTask : public Executable {
  public:
   RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
-                 roo_time::Interval delay);
+                 roo_time::Interval delay, Priority priority = PRIORITY_NORMAL);
 
   bool is_active() const { return active_; }
+
   Priority priority() const { return priority_; }
 
   // Starts the task, scheduling the next execution after its regular configured
@@ -294,15 +320,19 @@ class RepetitiveTask : public Executable {
 class PeriodicTask : public Executable {
  public:
   PeriodicTask(Scheduler& scheduler, std::function<void()> task,
-               roo_time::Interval period);
+               roo_time::Interval period, Priority priority = PRIORITY_NORMAL);
 
   bool is_active() const { return active_; }
+
+  Priority priority() const { return priority_; }
 
   bool start(roo_time::Uptime when = roo_time::Uptime::Now());
 
   bool stop();
 
   void execute(ExecutionID id) override;
+
+  void setPriority(Priority priority) { priority_ = priority; }
 
   ~PeriodicTask();
 
@@ -311,6 +341,7 @@ class PeriodicTask : public Executable {
   std::function<void()> task_;
   ExecutionID id_;
   bool active_;
+  Priority priority_;
   roo_time::Interval period_;
   roo_time::Uptime next_;
 };

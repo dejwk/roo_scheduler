@@ -46,16 +46,17 @@ void Scheduler::pop() {
 }
 
 bool Scheduler::executeEligibleTasksUpTo(roo_time::Uptime deadline,
-                                         int max_tasks) {
+                                         Priority min_priority, int max_tasks) {
   while (max_tasks < 0 || max_tasks-- > 0) {
-    if (!runOneEligibleExecution(deadline)) return true;
+    if (!runOneEligibleExecution(deadline, min_priority)) return true;
   }
   return false;
 }
 
-bool Scheduler::executeEligibleTasks(int max_tasks) {
+bool Scheduler::executeEligibleTasks(Priority min_priority, int max_tasks) {
   while (max_tasks < 0 || max_tasks-- > 0) {
-    if (!runOneEligibleExecution(roo_time::Uptime::Now())) return true;
+    if (!runOneEligibleExecution(roo_time::Uptime::Now(), min_priority))
+      return true;
   }
   return false;
 }
@@ -82,12 +83,12 @@ roo_time::Interval Scheduler::getNearestExecutionDelay() const {
   }
 }
 
-bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline) {
+bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
+                                        Priority min_priority) {
   // Move all due tasks to the ready queue.
   roo_time::Uptime now = roo_time::Uptime::Now();
-
-  while (!queue_.empty() && queue_.front().when() <= deadline &&
-         queue_.front().when() <= now) {
+  if (deadline > now) deadline = now;
+  while (!queue_.empty() && queue_.front().when() <= deadline) {
     ready_.push_back(queue_.front());
     std::push_heap(ready_.begin(), ready_.end(), PriorityComparator());
     pop();
@@ -96,13 +97,20 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline) {
     const Entry& entry = ready_.front();
     Executable* task = entry.task();
     ExecutionID id = entry.id();
+    bool canceled = canceled_.erase(id);
+    if (!canceled && entry.priority() < min_priority) {
+      // Next ready task is too low priority.
+      return false;
+    }
     std::pop_heap(ready_.begin(), ready_.end(), PriorityComparator());
     ready_.pop_back();
-    if (!canceled_.erase(id)) {
+    if (!canceled) {
+      // Found an eligible task (not canceled, with high enough priority).
       task->execute(id);
       return true;
     }
   }
+  // No ready tasks.
   return false;
 }
 
@@ -144,13 +152,13 @@ void Scheduler::pruneCanceled() {
   }
 }
 
-void Scheduler::delay(roo_time::Interval delay) {
-  delayUntil(roo_time::Uptime::Now() + delay);
+void Scheduler::delay(roo_time::Interval delay, Priority min_priority) {
+  delayUntil(roo_time::Uptime::Now() + delay, min_priority);
 }
 
-void Scheduler::delayUntil(roo_time::Uptime deadline) {
+void Scheduler::delayUntil(roo_time::Uptime deadline, Priority min_priority) {
   while (true) {
-    executeEligibleTasksUpTo(deadline);
+    executeEligibleTasksUpTo(deadline, min_priority);
     roo_time::Uptime next = getNearestExecutionTime();
     if (next > deadline) {
       roo_time::DelayUntil(deadline);
@@ -169,12 +177,12 @@ void Scheduler::run() {
 }
 
 RepetitiveTask::RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
-                               roo_time::Interval delay)
+                               roo_time::Interval delay, Priority priority)
     : scheduler_(scheduler),
       task_(task),
       id_(-1),
       active_(false),
-      priority_(PRIORITY_NORMAL),
+      priority_(priority),
       delay_(delay) {}
 
 // Starts the task, scheduling the next execution after the specified delay.
@@ -204,11 +212,12 @@ RepetitiveTask::~RepetitiveTask() {
 }
 
 PeriodicTask::PeriodicTask(Scheduler& scheduler, std::function<void()> task,
-                           roo_time::Interval period)
+                           roo_time::Interval period, Priority priority)
     : scheduler_(scheduler),
       task_(task),
       id_(-1),
       active_(false),
+      priority_(priority),
       period_(period) {}
 
 bool PeriodicTask::start(roo_time::Uptime when) {
@@ -216,7 +225,7 @@ bool PeriodicTask::start(roo_time::Uptime when) {
   if (id_ >= 0) scheduler_.cancel(id_);
   active_ = true;
   next_ = when;
-  id_ = scheduler_.scheduleOn(this, next_);
+  id_ = scheduler_.scheduleOn(this, next_, priority_);
   return true;
 }
 
@@ -231,7 +240,7 @@ void PeriodicTask::execute(ExecutionID id) {
   task_();
   next_ += period_;
   if (!active_) return;
-  id_ = scheduler_.scheduleOn(this, next_);
+  id_ = scheduler_.scheduleOn(this, next_, priority_);
 }
 
 PeriodicTask::~PeriodicTask() {
