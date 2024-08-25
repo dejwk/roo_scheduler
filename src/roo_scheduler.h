@@ -240,11 +240,10 @@ class Scheduler {
   // non-canceled execution.
   std::vector<Entry> queue_;
 
-  // Tasks that are due.
-  //
-  // We maintain the invariant that the top (front) of the queue is a
-  // non-canceled execution.
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+  // Tasks that are due. Heap, ordered by priority.
   std::vector<Entry> ready_;
+#endif
 
   ExecutionID next_execution_id_;
 

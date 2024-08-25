@@ -62,27 +62,32 @@ bool Scheduler::executeEligibleTasks(Priority min_priority, int max_tasks) {
 }
 
 roo_time::Uptime Scheduler::getNearestExecutionTime() const {
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
   if (!ready_.empty()) {
     return roo_time::Uptime::Now();
-  } else if (!queue_.empty()) {
-    return queue_.front().when();
-  } else {
-    return roo_time::Uptime::Max();
   }
+#endif
+  if (!queue_.empty()) {
+    return queue_.front().when();
+  }
+  return roo_time::Uptime::Max();
 }
 
 roo_time::Interval Scheduler::getNearestExecutionDelay() const {
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
   if (!ready_.empty()) {
     return roo_time::Interval();
-  } else if (!queue_.empty()) {
+  }
+#endif
+  if (!queue_.empty()) {
     roo_time::Uptime next = queue_.front().when();
     roo_time::Uptime now = roo_time::Uptime::Now();
     return (next < now ? roo_time::Interval() : next - now);
-  } else {
-    return roo_time::Interval::Max();
   }
+  return roo_time::Interval::Max();
 }
 
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
 bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
                                         Priority min_priority) {
   // Move all due tasks to the ready queue.
@@ -113,6 +118,28 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
   // No ready tasks.
   return false;
 }
+#else
+bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
+                                        Priority min_priority) {
+  // Move all due tasks to the ready queue.
+  roo_time::Uptime now = roo_time::Uptime::Now();
+  if (deadline > now) deadline = now;
+  while (!queue_.empty() && queue_.front().when() <= deadline) {
+    const Entry& entry = queue_.front();
+    Executable* task = entry.task();
+    ExecutionID id = entry.id();
+    bool canceled = canceled_.erase(id);
+    pop();
+    if (!canceled) {
+      // Found an eligible task (not canceled, with high enough priority).
+      task->execute(id);
+      return true;
+    }
+  }
+  // No ready tasks.
+  return false;
+}
+#endif
 
 void Scheduler::cancel(ExecutionID id) {
   if (queue_.empty()) {
