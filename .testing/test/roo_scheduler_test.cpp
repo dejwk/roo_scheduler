@@ -3,19 +3,25 @@
 #include "gtest/gtest.h"
 #include "roo_time.h"
 
-static unsigned long int current_time_us = 0;
+static long int current_time_us = 0;
 
 namespace roo_time {
 
 const Uptime Uptime::Now() { return Uptime(current_time_us); }
+
+void Delay(Interval interval) { current_time_us += interval.inMicros(); }
+
+void DelayUntil(roo_time::Uptime when) {
+  if (when.inMicros() > current_time_us) {
+    current_time_us = when.inMicros();
+  }
+}
 
 }  // namespace roo_time
 
 namespace roo_scheduler {
 
 using namespace roo_time;
-
-void delay(Interval interval) { current_time_us += interval.inMicros(); }
 
 TEST(Scheduler, Now) {
   int counter = 0;
@@ -44,12 +50,12 @@ TEST(Scheduler, Repetitive) {
       scheduler,
       [&counter] {
         ++counter;
-        delay(Millis(100));
+        Delay(Millis(100));
       },
       Millis(1200));
   scheduler.executeEligibleTasks();
   EXPECT_EQ(0, counter);
-  delay(Millis(1000));
+  Delay(Millis(1000));
   EXPECT_EQ(Uptime::Max(), scheduler.getNearestExecutionTime());
   EXPECT_EQ(Interval::Max(), scheduler.getNearestExecutionDelay());
   scheduler.executeEligibleTasks();
@@ -58,15 +64,15 @@ TEST(Scheduler, Repetitive) {
   EXPECT_EQ(Millis(200), scheduler.getNearestExecutionDelay());
   scheduler.executeEligibleTasks();
   EXPECT_EQ(0, counter);
-  delay(Millis(200));
+  Delay(Millis(200));
   EXPECT_EQ(Millis(0), scheduler.getNearestExecutionDelay());
   scheduler.executeEligibleTasks();
   EXPECT_EQ(Millis(1200), scheduler.getNearestExecutionDelay());
   EXPECT_EQ(1, counter);
-  delay(Millis(1100));
+  Delay(Millis(1100));
   scheduler.executeEligibleTasks();
   EXPECT_EQ(1, counter);
-  delay(Millis(100));
+  Delay(Millis(100));
   scheduler.executeEligibleTasks();
   EXPECT_EQ(2, counter);
 }
@@ -78,21 +84,21 @@ TEST(Scheduler, Periodic) {
       scheduler,
       [&counter] {
         ++counter;
-        delay(Millis(100));
+        Delay(Millis(100));
       },
       Millis(1200));
   scheduler.executeEligibleTasks();
   EXPECT_EQ(0, counter);
-  delay(Millis(1000));
+  Delay(Millis(1000));
   scheduler.executeEligibleTasks();
   EXPECT_EQ(0, counter);
   task.start(Uptime::Now() + Millis(200));
   scheduler.executeEligibleTasks();
   EXPECT_EQ(0, counter);
-  delay(Millis(200));
+  Delay(Millis(200));
   scheduler.executeEligibleTasks();
   EXPECT_EQ(1, counter);
-  delay(Millis(1100));
+  Delay(Millis(1100));
   scheduler.executeEligibleTasks();
   EXPECT_EQ(2, counter);
 }
@@ -105,7 +111,7 @@ TEST(Scheduler, RepetitiveImmediateDestruction) {
         scheduler,
         [&counter] {
           ++counter;
-          delay(Millis(100));
+          Delay(Millis(100));
         },
         Millis(1200));
     task.startInstantly();
@@ -123,7 +129,7 @@ TEST(Scheduler, PeriodicImmediateDestruction) {
         scheduler,
         [&counter] {
           ++counter;
-          delay(Millis(100));
+          Delay(Millis(100));
         },
         Millis(1200));
     task.start();
@@ -139,7 +145,7 @@ TEST(Scheduler, SingletonImmediateDestruction) {
   {
     SingletonTask task(scheduler, [&counter] {
       ++counter;
-      delay(Millis(100));
+      Delay(Millis(100));
     });
     task.scheduleNow();
     // Now, destroy the task.
@@ -153,12 +159,12 @@ TEST(Scheduler, SingletonNonImmediateDestruction) {
   int counter = 0;
   SingletonTask task1(scheduler, [&counter] {
     ++counter;
-    delay(Millis(100));
+    Delay(Millis(100));
   });
   {
     SingletonTask task2(scheduler, [&counter] {
       ++counter;
-      delay(Millis(100));
+      Delay(Millis(100));
     });
     task1.scheduleNow();
     task2.scheduleNow();
@@ -185,7 +191,7 @@ TEST(Scheduler, StableScheduleOrder) {
     ExecutionID id = scheduler.scheduleOn(&test, now + Micros(100));
     expected.push_back(id);
   }
-  delay(Seconds(2));
+  Delay(Seconds(2));
   int i = 0;
   while (!scheduler.executeEligibleTasks(1)) {
     EXPECT_EQ(observed[i], expected[i]) << "at " << i;
@@ -216,7 +222,7 @@ TEST(Scheduler, LargeRandomTest) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
-  delay(Seconds(2));
+  Delay(Seconds(2));
   int i = 0;
   while (!scheduler.executeEligibleTasks(1)) {
     EXPECT_EQ(observed[i], expected[i].id)
@@ -260,7 +266,7 @@ TEST(Scheduler, LargeRandomCancellationTest) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
-  delay(Seconds(2));
+  Delay(Seconds(2));
   int i = 0;
   while (!scheduler.executeEligibleTasks(1)) {
     EXPECT_EQ(observed[i], expected[i].id)
@@ -310,7 +316,7 @@ TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
-  delay(Seconds(2));
+  Delay(Seconds(2));
   int i = 0;
   while (!scheduler.executeEligibleTasks(1)) {
     EXPECT_EQ(observed[i], expected[i].id)
