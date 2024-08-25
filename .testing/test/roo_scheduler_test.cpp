@@ -9,7 +9,9 @@ namespace roo_time {
 
 const Uptime Uptime::Now() { return Uptime(current_time_us); }
 
-void Delay(Interval interval) { current_time_us += interval.inMicros(); }
+void Delay(Interval interval) {
+  current_time_us += interval.inMicros();
+}
 
 void DelayUntil(roo_time::Uptime when) {
   if (when.inMicros() > current_time_us) {
@@ -198,6 +200,134 @@ TEST(Scheduler, StableScheduleOrder) {
     ++i;
   }
   ASSERT_EQ(i, 100);
+}
+
+TEST(Scheduler, PriorityNoEffectWhenNotBackedUp) {
+  Scheduler scheduler;
+  std::vector<ExecutionID> observed;
+  std::vector<ExecutionID> expected;
+  TestTask test(observed);
+
+  Uptime now = Uptime::Now();
+  ExecutionID id1 =
+      scheduler.scheduleOn(&test, now + Micros(100), PRIORITY_BACKGROUND);
+  ExecutionID id2 =
+      scheduler.scheduleOn(&test, now + Micros(200), PRIORITY_REDUCED);
+  ExecutionID id3 =
+      scheduler.scheduleOn(&test, now + Micros(300), PRIORITY_NORMAL);
+  ExecutionID id4 =
+      scheduler.scheduleOn(&test, now + Micros(400), PRIORITY_ELEVATED);
+  ExecutionID id5 =
+      scheduler.scheduleOn(&test, now + Micros(500), PRIORITY_SENSITIVE);
+  ExecutionID id6 =
+      scheduler.scheduleOn(&test, now + Micros(600), PRIORITY_CRITICAL);
+  expected.push_back(id1);
+  expected.push_back(id2);
+  expected.push_back(id3);
+  expected.push_back(id4);
+  expected.push_back(id5);
+  expected.push_back(id6);
+  Delay(Micros(100));
+  EXPECT_TRUE(scheduler.executeEligibleTasks());
+  Delay(Micros(100));
+  EXPECT_TRUE(scheduler.executeEligibleTasks());
+  Delay(Micros(100));
+  EXPECT_TRUE(scheduler.executeEligibleTasks());
+  Delay(Micros(100));
+  EXPECT_TRUE(scheduler.executeEligibleTasks());
+  Delay(Micros(100));
+  EXPECT_TRUE(scheduler.executeEligibleTasks());
+  Delay(Micros(100));
+  EXPECT_TRUE(scheduler.executeEligibleTasks());
+
+  EXPECT_EQ(observed, expected);
+}
+
+TEST(Scheduler, PriorityAppliedWhenBackedUp) {
+  Scheduler scheduler;
+  std::vector<ExecutionID> observed;
+  std::vector<ExecutionID> expected;
+  TestTask test(observed);
+
+  Uptime now = Uptime::Now();
+  ExecutionID id1 =
+      scheduler.scheduleOn(&test, now + Micros(100), PRIORITY_BACKGROUND);
+  ExecutionID id2 =
+      scheduler.scheduleOn(&test, now + Micros(200), PRIORITY_REDUCED);
+  ExecutionID id3 =
+      scheduler.scheduleOn(&test, now + Micros(300), PRIORITY_NORMAL);
+  ExecutionID id4 =
+      scheduler.scheduleOn(&test, now + Micros(400), PRIORITY_ELEVATED);
+  ExecutionID id5 =
+      scheduler.scheduleOn(&test, now + Micros(500), PRIORITY_SENSITIVE);
+  ExecutionID id6 =
+      scheduler.scheduleOn(&test, now + Micros(600), PRIORITY_CRITICAL);
+  expected.push_back(id6);
+  expected.push_back(id5);
+  expected.push_back(id4);
+  expected.push_back(id3);
+  expected.push_back(id2);
+  expected.push_back(id1);
+  Delay(Micros(1000));
+  EXPECT_TRUE(scheduler.executeEligibleTasks());
+  EXPECT_EQ(observed, expected);
+}
+
+TEST(Scheduler, DelayWithNormalPriority) {
+  Scheduler scheduler;
+  std::vector<ExecutionID> observed;
+  std::vector<ExecutionID> expected;
+  TestTask test(observed);
+
+  Uptime now = Uptime::Now();
+  Uptime trigger = now + Micros(100);
+  ExecutionID id1 = scheduler.scheduleOn(&test, trigger, PRIORITY_BACKGROUND);
+  ExecutionID id2 = scheduler.scheduleOn(&test, trigger, PRIORITY_REDUCED);
+  ExecutionID id3 = scheduler.scheduleOn(&test, trigger, PRIORITY_NORMAL);
+  ExecutionID id4 = scheduler.scheduleOn(&test, trigger, PRIORITY_ELEVATED);
+  ExecutionID id5 = scheduler.scheduleOn(&test, trigger, PRIORITY_SENSITIVE);
+  ExecutionID id6 = scheduler.scheduleOn(&test, trigger, PRIORITY_CRITICAL);
+
+  scheduler.delay(Micros(50));
+  EXPECT_EQ(observed, expected);
+  expected.push_back(id6);
+  expected.push_back(id5);
+  expected.push_back(id4);
+  expected.push_back(id3);
+  scheduler.delay(Micros(50));
+  EXPECT_EQ(observed, expected);
+  expected.push_back(id2);
+  expected.push_back(id1);
+  scheduler.delay(Micros(100));
+  EXPECT_EQ(observed, expected);
+}
+
+TEST(Scheduler, DelayWithHeightenedPriority) {
+  Scheduler scheduler;
+  std::vector<ExecutionID> observed;
+  std::vector<ExecutionID> expected;
+  TestTask test(observed);
+
+  Uptime now = Uptime::Now();
+  Uptime trigger = now + Micros(100);
+  ExecutionID id1 = scheduler.scheduleOn(&test, trigger, PRIORITY_BACKGROUND);
+  ExecutionID id2 = scheduler.scheduleOn(&test, trigger, PRIORITY_REDUCED);
+  ExecutionID id3 = scheduler.scheduleOn(&test, trigger, PRIORITY_NORMAL);
+  ExecutionID id4 = scheduler.scheduleOn(&test, trigger, PRIORITY_ELEVATED);
+  ExecutionID id5 = scheduler.scheduleOn(&test, trigger, PRIORITY_SENSITIVE);
+  ExecutionID id6 = scheduler.scheduleOn(&test, trigger, PRIORITY_CRITICAL);
+  scheduler.delay(Micros(50), PRIORITY_SENSITIVE);
+  EXPECT_EQ(observed, expected);
+  expected.push_back(id6);
+  expected.push_back(id5);
+  scheduler.delay(Micros(50), PRIORITY_SENSITIVE);
+  EXPECT_EQ(observed, expected);
+  expected.push_back(id4);
+  expected.push_back(id3);
+  expected.push_back(id2);
+  expected.push_back(id1);
+  scheduler.delay(Micros(100));
+  EXPECT_EQ(observed, expected);
 }
 
 TEST(Scheduler, LargeRandomTest) {

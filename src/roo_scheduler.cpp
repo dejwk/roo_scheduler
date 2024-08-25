@@ -157,16 +157,18 @@ void Scheduler::delay(roo_time::Interval delay, Priority min_priority) {
 }
 
 void Scheduler::delayUntil(roo_time::Uptime deadline, Priority min_priority) {
-  while (true) {
-    executeEligibleTasksUpTo(deadline, min_priority);
-    roo_time::Uptime next = getNearestExecutionTime();
-    if (next > deadline) {
-      roo_time::DelayUntil(deadline);
-      return;
-    } else {
-      roo_time::DelayUntil(next);
+  while (roo_time::Uptime::Now() < deadline) {
+    if (executeEligibleTasks(1)) {
+      roo_time::Uptime next = getNearestExecutionTime();
+      if (next > deadline) {
+        roo_time::DelayUntil(deadline);
+        return;
+      } else {
+        roo_time::DelayUntil(next);
+      }
     }
   }
+  executeEligibleTasksUpTo(deadline, min_priority);
 }
 
 void Scheduler::run() {

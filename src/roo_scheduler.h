@@ -102,13 +102,16 @@ class Scheduler {
   bool executeEligibleTasksUpTo(roo_time::Uptime deadline,
                                 Priority min_priority, int max_count = -1);
 
+  // Execute up to max_count of eligible task executions, of at least the
+  // specified priority. Returns true if the queue has been cleared; false if
+  // some eligible executions have remained in the queue.
+  bool executeEligibleTasks(Priority min_priority, int max_count = -1);
+
   // Execute up to max_count of eligible task executions. Returns true if the
   // queue has been cleared; false if some eligible executions have remained in
   // the queue.
-  bool executeEligibleTasks(Priority min_priority, int max_count = -1);
-
   bool executeEligibleTasks(int max_count = -1) {
-    return executeEligibleTasks(PRIORITY_NORMAL, max_count);
+    return executeEligibleTasks(PRIORITY_MINIMUM, max_count);
   }
 
   // Returns the scheduled time of the nearest upcoming task execution.
