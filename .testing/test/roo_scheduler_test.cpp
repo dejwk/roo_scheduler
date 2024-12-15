@@ -1,17 +1,19 @@
 #include "roo_scheduler.h"
 
+#include <atomic>
+#include <chrono>
+#include <thread>
+
 #include "gtest/gtest.h"
 #include "roo_time.h"
 
-static long int current_time_us = 0;
+static std::atomic<long> current_time_us = 0;
 
 namespace roo_time {
 
 const Uptime Uptime::Now() { return Uptime(current_time_us); }
 
-void Delay(Interval interval) {
-  current_time_us += interval.inMicros();
-}
+void Delay(Interval interval) { current_time_us += interval.inMicros(); }
 
 void DelayUntil(roo_time::Uptime when) {
   if (when.inMicros() > current_time_us) {
@@ -22,6 +24,21 @@ void DelayUntil(roo_time::Uptime when) {
 }  // namespace roo_time
 
 namespace roo_scheduler {
+
+static std::atomic<bool> going = true;
+
+void real_time() {
+  const auto start = std::chrono::system_clock::now();
+  long arduino_start = current_time_us;
+  while (going) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    const auto elapsed = std::chrono::system_clock::now() - start;
+    current_time_us =
+        (arduino_start +
+         (std::chrono::duration_cast<std::chrono::microseconds>(elapsed))
+             .count());
+  }
+}
 
 using namespace roo_time;
 
@@ -274,6 +291,9 @@ TEST(Scheduler, PriorityAppliedWhenBackedUp) {
 }
 
 TEST(Scheduler, DelayWithNormalPriority) {
+  going = true;
+  std::thread rt(&real_time);
+
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
@@ -288,21 +308,27 @@ TEST(Scheduler, DelayWithNormalPriority) {
   ExecutionID id5 = scheduler.scheduleOn(&test, trigger, PRIORITY_SENSITIVE);
   ExecutionID id6 = scheduler.scheduleOn(&test, trigger, PRIORITY_CRITICAL);
 
-  scheduler.delay(Micros(50));
+  scheduler.delayUntil(now + Micros(50));
   EXPECT_EQ(observed, expected);
   expected.push_back(id6);
   expected.push_back(id5);
   expected.push_back(id4);
   expected.push_back(id3);
-  scheduler.delay(Micros(50));
+  scheduler.delayUntil(now + Micros(100));
   EXPECT_EQ(observed, expected);
   expected.push_back(id2);
   expected.push_back(id1);
-  scheduler.delay(Micros(100));
+  scheduler.delayUntil(now + Micros(2000));
   EXPECT_EQ(observed, expected);
+
+  going = false;
+  rt.join();
 }
 
 TEST(Scheduler, DelayWithHeightenedPriority) {
+  going = true;
+  std::thread rt(&real_time);
+
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
@@ -316,18 +342,21 @@ TEST(Scheduler, DelayWithHeightenedPriority) {
   ExecutionID id4 = scheduler.scheduleOn(&test, trigger, PRIORITY_ELEVATED);
   ExecutionID id5 = scheduler.scheduleOn(&test, trigger, PRIORITY_SENSITIVE);
   ExecutionID id6 = scheduler.scheduleOn(&test, trigger, PRIORITY_CRITICAL);
-  scheduler.delay(Micros(50), PRIORITY_SENSITIVE);
+  scheduler.delayUntil(now + Micros(50), PRIORITY_SENSITIVE);
   EXPECT_EQ(observed, expected);
   expected.push_back(id6);
   expected.push_back(id5);
-  scheduler.delay(Micros(50), PRIORITY_SENSITIVE);
+  scheduler.delayUntil(now + Micros(100), PRIORITY_SENSITIVE);
   EXPECT_EQ(observed, expected);
   expected.push_back(id4);
   expected.push_back(id3);
   expected.push_back(id2);
   expected.push_back(id1);
-  scheduler.delay(Micros(100));
+  scheduler.delayUntil(now + Micros(2000));
   EXPECT_EQ(observed, expected);
+
+  going = false;
+  rt.join();
 }
 
 TEST(Scheduler, LargeRandomTest) {
