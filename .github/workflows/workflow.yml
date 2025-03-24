@@ -30,6 +30,10 @@ jobs:
          curl -LO "https://github.com/dejwk/roo_backport/archive/refs/tags/1.0.1.zip";
          unzip 1.0.1.zip;
          mv roo_backport-1.0.1 roo_backport)
+        (cd .testing/lib;
+         curl -LO "https://github.com/dejwk/roo_collections/archive/refs/tags/1.1.6.zip";
+         unzip 1.1.6.zip;
+         mv roo_collections-1.1.6 roo_collections)
 
     - name: Build
       run: |
