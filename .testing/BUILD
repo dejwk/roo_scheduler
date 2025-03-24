@@ -10,7 +10,7 @@ cc_library(
     hdrs = ["src/roo_scheduler.h"],
     includes = ["src"],
     deps = [
-        "@roo_collections//:roo_collections",
+        "//lib/roo_collections",
         "@roo_time//:core"
     ],
 )
@@ -25,6 +25,6 @@ cc_test(
     linkstatic = 1,
     deps = [
         ":roo_scheduler",
-        "@gtest//:gtest_main",
+        "@googletest//:gtest_main",
     ],
 )
