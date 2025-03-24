@@ -24,3 +24,9 @@ http_archive(
   url = "https://github.com/dejwk/roo_collections/archive/refs/heads/master.zip",
   strip_prefix = "roo_collections-main",
 )
+
+http_archive(
+  name = "roo_backport",
+  url = "https://github.com/dejwk/roo_backport/archive/refs/heads/master.zip",
+  strip_prefix = "roo_backport-main",
+)
