@@ -28,7 +28,7 @@ jobs:
         mkdir .testing/lib
         (cd .testing/lib;
          curl -LO "https://github.com/dejwk/roo_backport/archive/refs/tags/1.0.1.zip";
-         unzip roo_backport-1.0.1.zip;
+         unzip 1.0.1.zip;
          mv roo_backport-1.0.1 roo_backport)
 
     - name: Build
