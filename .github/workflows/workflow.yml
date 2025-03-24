@@ -37,8 +37,8 @@ jobs:
 
     - name: Build
       run: |
-        (cd .testing; cp -Rf ../src .; ${GITHUB_WORKSPACE}/bin/bazel build //...)
+        (cd .testing; cp -Rf ../src .; ${GITHUB_WORKSPACE}/bin/bazel build :all)
 
     - name: Test
       run: |
-        (cd .testing; ${GITHUB_WORKSPACE}/bin/bazel test //...)
+        (cd .testing; ${GITHUB_WORKSPACE}/bin/bazel test :all)
