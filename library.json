@@ -41,6 +41,11 @@
             "owner": "dejwk",
             "name": "roo_collections",
             "version": ">=1.1.6"
+        },
+        {
+            "owner": "dejwk",
+            "name": "roo_threads",
+            "version": ">0"
         }
     ]
 }

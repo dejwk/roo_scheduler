@@ -8,19 +8,15 @@ Scheduler::Scheduler() : queue_(), next_execution_id_(0), canceled_(0) {}
 
 ExecutionID Scheduler::scheduleOn(Executable* task, roo_time::Uptime when,
                                   Priority priority) {
-#if ROO_SCHEDULER_THREADSAFE
-  std::lock_guard<std::mutex> lock(mutex_);
+  roo::lock_guard<roo::mutex> lock(mutex_);
   nonempty_.notify_all();
-#endif
   return push(task, when, priority);
 }
 
 ExecutionID Scheduler::scheduleAfter(Executable* task, roo_time::Interval delay,
                                      Priority priority) {
-#if ROO_SCHEDULER_THREADSAFE
-  std::lock_guard<std::mutex> lock(mutex_);
+  roo::lock_guard<roo::mutex> lock(mutex_);
   nonempty_.notify_all();
-#endif
   return push(task, roo_time::Uptime::Now() + delay, priority);
 }
 
@@ -70,9 +66,7 @@ bool Scheduler::executeEligibleTasks(Priority min_priority, int max_tasks) {
 }
 
 roo_time::Uptime Scheduler::getNearestExecutionTime() const {
-#if ROO_SCHEDULER_THREADSAFE
-  std::lock_guard<std::mutex> lock(mutex_);
-#endif
+  roo::lock_guard<roo::mutex> lock(mutex_);
   return getNearestExecutionTimeWithLockHeld();
 }
 
@@ -89,9 +83,7 @@ roo_time::Uptime Scheduler::getNearestExecutionTimeWithLockHeld() const {
 }
 
 roo_time::Interval Scheduler::getNearestExecutionDelay() const {
-#if ROO_SCHEDULER_THREADSAFE
-  std::lock_guard<std::mutex> lock(mutex_);
-#endif
+  roo::lock_guard<roo::mutex> lock(mutex_);
   return getNearestExecutionDelayWithLockHeld();
 }
 
@@ -115,9 +107,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
   Executable* task = nullptr;
   ExecutionID id;
   {
-#if ROO_SCHEDULER_THREADSAFE
-    std::lock_guard<std::mutex> lock(mutex_);
-#endif
+    roo::lock_guard<roo::mutex> lock(mutex_);
     // Move all due tasks to the ready queue.
     roo_time::Uptime now = roo_time::Uptime::Now();
     if (deadline > now) deadline = now;
@@ -153,9 +143,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
 #else
 bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
                                         Priority min_priority) {
-#if ROO_SCHEDULER_THREADSAFE
-  std::lock_guard<std::mutex> lock(mutex_);
-#endif
+  roo::lock_guard<roo::mutex> lock(mutex_);
   // Move all due tasks to the ready queue.
   roo_time::Uptime now = roo_time::Uptime::Now();
   if (deadline > now) deadline = now;
@@ -177,9 +165,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
 #endif
 
 void Scheduler::cancel(ExecutionID id) {
-#if ROO_SCHEDULER_THREADSAFE
-  std::lock_guard<std::mutex> lock(mutex_);
-#endif
+  roo::lock_guard<roo::mutex> lock(mutex_);
   if (queue_.empty()) {
     // There is nothing to cancel.
     return;
@@ -196,9 +182,7 @@ void Scheduler::cancel(ExecutionID id) {
 }
 
 void Scheduler::pruneCanceled() {
-#if ROO_SCHEDULER_THREADSAFE
-  std::lock_guard<std::mutex> lock(mutex_);
-#endif
+  roo::lock_guard<roo::mutex> lock(mutex_);
   if (canceled_.empty()) return;
   bool modified = false;
   size_t i = 0;
@@ -227,19 +211,12 @@ void Scheduler::delay(roo_time::Interval delay, Priority min_priority) {
 void Scheduler::delayUntil(roo_time::Uptime deadline, Priority min_priority) {
   while (roo_time::Uptime::Now() < deadline) {
     if (executeEligibleTasks(1)) {
-#if ROO_SCHEDULER_THREADSAFE
-      std::unique_lock<std::mutex> lock(mutex_);
-#endif
+      roo::unique_lock<roo::mutex> lock(mutex_);
       roo_time::Uptime next = getNearestExecutionTimeWithLockHeld();
       if (next > deadline) next = deadline;
       auto now = roo_time::Uptime::Now();
       if (next > now) {
-#if ROO_SCHEDULER_THREADSAFE
-        nonempty_.wait_for(lock,
-                           std::chrono::microseconds((next - now).inMicros()));
-#else
-        roo_time::DelayUntil(next);
-#endif
+        nonempty_.wait_until(lock, next);
       }
     }
   }
@@ -249,15 +226,9 @@ void Scheduler::delayUntil(roo_time::Uptime deadline, Priority min_priority) {
 void Scheduler::run() {
   while (true) {
     executeEligibleTasks();
-#if ROO_SCHEDULER_THREADSAFE
-    std::unique_lock<std::mutex> lock(mutex_);
-#endif
+    roo::unique_lock<roo::mutex> lock(mutex_);
     roo_time::Interval delay = getNearestExecutionDelayWithLockHeld();
-#if ROO_SCHEDULER_THREADSAFE
-    nonempty_.wait_for(lock, std::chrono::microseconds(delay.inMicros()));
-#else
-    roo_time::Delay(delay);
-#endif
+    nonempty_.wait_for(lock, delay);
   }
 }
 

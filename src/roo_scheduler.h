@@ -8,19 +8,9 @@
 #include "roo_collections/flat_small_hash_set.h"
 #include "roo_time.h"
 
-#ifndef ROO_SCHEDULER_THREADSAFE
-#if (defined(ESP32) || defined(__linux__))
-#define ROO_SCHEDULER_THREADSAFE 1
-#else
-#define ROO_SCHEDULER_THREADSAFE 0
-#endif
-#endif
-
-#if ROO_SCHEDULER_THREADSAFE
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#endif
+#include "roo_threads.h"
+#include "roo_threads/condition_variable.h"
+#include "roo_threads/mutex.h"
 
 // A typical Arduino use case may look like the following:
 //
@@ -273,10 +263,8 @@ class Scheduler {
   // clears this set.
   roo_collections::FlatSmallHashSet<ExecutionID> canceled_;
 
-#if ROO_SCHEDULER_THREADSAFE
-  mutable std::mutex mutex_;
-  std::condition_variable nonempty_;
-#endif
+  mutable roo::mutex mutex_;
+  roo::condition_variable nonempty_;
 };
 
 // A convenience adapter that allows to schedule a one-time execution of

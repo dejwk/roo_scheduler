@@ -16,5 +16,6 @@ cc_library(
     deps = [
         "//lib/roo_collections",
         "//lib/roo_time",
+        "//lib/roo_threads",
     ],
 )

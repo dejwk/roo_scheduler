@@ -11,7 +11,8 @@ cc_library(
     includes = ["src"],
     deps = [
         "//lib/roo_collections",
-        "@roo_time//:core"
+        "//lib/roo_threads:testing",
+        "//lib/roo_time:core"
     ],
 )
 
