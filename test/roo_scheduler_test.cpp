@@ -4,8 +4,8 @@
 #include <chrono>
 
 #include "gtest/gtest.h"
-#include "roo_time.h"
 #include "roo_testing/system/timer.h"
+#include "roo_time.h"
 
 namespace roo_scheduler {
 
@@ -16,7 +16,7 @@ TEST(Scheduler, Now) {
   int counter = 0;
   Scheduler scheduler;
   Task task([&counter] { ++counter; });
-  scheduler.scheduleNow(&task);
+  scheduler.scheduleNow(task);
   scheduler.executeEligibleTasks();
   EXPECT_EQ(1, counter);
 }
@@ -26,9 +26,9 @@ TEST(Scheduler, Now3x) {
   int counter = 0;
   Scheduler scheduler;
   Task task([&counter] { ++counter; });
-  scheduler.scheduleNow(&task);
-  scheduler.scheduleNow(&task);
-  scheduler.scheduleNow(&task);
+  scheduler.scheduleNow(task);
+  scheduler.scheduleNow(task);
+  scheduler.scheduleNow(task);
   scheduler.executeEligibleTasks();
   EXPECT_EQ(3, counter);
 }
@@ -37,13 +37,10 @@ TEST(Scheduler, Repetitive) {
   system_time_set_auto_sync(false);
   int counter = 0;
   Scheduler scheduler;
-  RepetitiveTask task(
-      scheduler,
-      [&counter] {
-        ++counter;
-        Delay(Millis(100));
-      },
-      Millis(1200));
+  RepetitiveTask task(scheduler, Millis(1200), [&counter] {
+    ++counter;
+    Delay(Millis(100));
+  });
   scheduler.executeEligibleTasks();
   EXPECT_EQ(0, counter);
   Delay(Millis(1000));
@@ -72,13 +69,10 @@ TEST(Scheduler, Periodic) {
   system_time_set_auto_sync(false);
   int counter = 0;
   Scheduler scheduler;
-  PeriodicTask task(
-      scheduler,
-      [&counter] {
-        ++counter;
-        Delay(Millis(100));
-      },
-      Millis(1200));
+  PeriodicTask task(scheduler, Millis(1200), [&counter] {
+    ++counter;
+    Delay(Millis(100));
+  });
   scheduler.executeEligibleTasks();
   EXPECT_EQ(0, counter);
   Delay(Millis(1000));
@@ -100,13 +94,10 @@ TEST(Scheduler, RepetitiveImmediateDestruction) {
   Scheduler scheduler;
   int counter = 0;
   {
-    RepetitiveTask task(
-        scheduler,
-        [&counter] {
-          ++counter;
-          Delay(Millis(100));
-        },
-        Millis(1200));
+    RepetitiveTask task(scheduler, Millis(1200), [&counter] {
+      ++counter;
+      Delay(Millis(100));
+    });
     task.startInstantly();
     // Now, destroy the task.
   }
@@ -119,13 +110,10 @@ TEST(Scheduler, PeriodicImmediateDestruction) {
   Scheduler scheduler;
   int counter = 0;
   {
-    PeriodicTask task(
-        scheduler,
-        [&counter] {
-          ++counter;
-          Delay(Millis(100));
-        },
-        Millis(1200));
+    PeriodicTask task(scheduler, Millis(1200), [&counter] {
+      ++counter;
+      Delay(Millis(100));
+    });
     task.start();
     // Now, destroy the task.
   }
@@ -185,7 +173,7 @@ TEST(Scheduler, StableScheduleOrder) {
 
   Uptime now = Uptime::Now();
   for (int i = 0; i < 100; ++i) {
-    ExecutionID id = scheduler.scheduleOn(&test, now + Micros(100));
+    ExecutionID id = scheduler.scheduleOn(now + Micros(100), test);
     expected.push_back(id);
   }
   Delay(Seconds(2));
@@ -206,17 +194,17 @@ TEST(Scheduler, PriorityNoEffectWhenNotBackedUp) {
 
   Uptime now = Uptime::Now();
   ExecutionID id1 =
-      scheduler.scheduleOn(&test, now + Micros(100), PRIORITY_BACKGROUND);
+      scheduler.scheduleOn(now + Micros(100), test, PRIORITY_BACKGROUND);
   ExecutionID id2 =
-      scheduler.scheduleOn(&test, now + Micros(200), PRIORITY_REDUCED);
+      scheduler.scheduleOn(now + Micros(200), test, PRIORITY_REDUCED);
   ExecutionID id3 =
-      scheduler.scheduleOn(&test, now + Micros(300), PRIORITY_NORMAL);
+      scheduler.scheduleOn(now + Micros(300), test, PRIORITY_NORMAL);
   ExecutionID id4 =
-      scheduler.scheduleOn(&test, now + Micros(400), PRIORITY_ELEVATED);
+      scheduler.scheduleOn(now + Micros(400), test, PRIORITY_ELEVATED);
   ExecutionID id5 =
-      scheduler.scheduleOn(&test, now + Micros(500), PRIORITY_SENSITIVE);
+      scheduler.scheduleOn(now + Micros(500), test, PRIORITY_SENSITIVE);
   ExecutionID id6 =
-      scheduler.scheduleOn(&test, now + Micros(600), PRIORITY_CRITICAL);
+      scheduler.scheduleOn(now + Micros(600), test, PRIORITY_CRITICAL);
   expected.push_back(id1);
   expected.push_back(id2);
   expected.push_back(id3);
@@ -248,17 +236,17 @@ TEST(Scheduler, PriorityAppliedWhenBackedUp) {
 
   Uptime now = Uptime::Now();
   ExecutionID id1 =
-      scheduler.scheduleOn(&test, now + Micros(100), PRIORITY_BACKGROUND);
+      scheduler.scheduleOn(now + Micros(100), test, PRIORITY_BACKGROUND);
   ExecutionID id2 =
-      scheduler.scheduleOn(&test, now + Micros(200), PRIORITY_REDUCED);
+      scheduler.scheduleOn(now + Micros(200), test, PRIORITY_REDUCED);
   ExecutionID id3 =
-      scheduler.scheduleOn(&test, now + Micros(300), PRIORITY_NORMAL);
+      scheduler.scheduleOn(now + Micros(300), test, PRIORITY_NORMAL);
   ExecutionID id4 =
-      scheduler.scheduleOn(&test, now + Micros(400), PRIORITY_ELEVATED);
+      scheduler.scheduleOn(now + Micros(400), test, PRIORITY_ELEVATED);
   ExecutionID id5 =
-      scheduler.scheduleOn(&test, now + Micros(500), PRIORITY_SENSITIVE);
+      scheduler.scheduleOn(now + Micros(500), test, PRIORITY_SENSITIVE);
   ExecutionID id6 =
-      scheduler.scheduleOn(&test, now + Micros(600), PRIORITY_CRITICAL);
+      scheduler.scheduleOn(now + Micros(600), test, PRIORITY_CRITICAL);
   expected.push_back(id6);
   expected.push_back(id5);
   expected.push_back(id4);
@@ -279,12 +267,12 @@ TEST(Scheduler, DelayWithNormalPriority) {
 
   Uptime now = Uptime::Now();
   Uptime trigger = now + Micros(100);
-  ExecutionID id1 = scheduler.scheduleOn(&test, trigger, PRIORITY_BACKGROUND);
-  ExecutionID id2 = scheduler.scheduleOn(&test, trigger, PRIORITY_REDUCED);
-  ExecutionID id3 = scheduler.scheduleOn(&test, trigger, PRIORITY_NORMAL);
-  ExecutionID id4 = scheduler.scheduleOn(&test, trigger, PRIORITY_ELEVATED);
-  ExecutionID id5 = scheduler.scheduleOn(&test, trigger, PRIORITY_SENSITIVE);
-  ExecutionID id6 = scheduler.scheduleOn(&test, trigger, PRIORITY_CRITICAL);
+  ExecutionID id1 = scheduler.scheduleOn(trigger, test, PRIORITY_BACKGROUND);
+  ExecutionID id2 = scheduler.scheduleOn(trigger, test, PRIORITY_REDUCED);
+  ExecutionID id3 = scheduler.scheduleOn(trigger, test, PRIORITY_NORMAL);
+  ExecutionID id4 = scheduler.scheduleOn(trigger, test, PRIORITY_ELEVATED);
+  ExecutionID id5 = scheduler.scheduleOn(trigger, test, PRIORITY_SENSITIVE);
+  ExecutionID id6 = scheduler.scheduleOn(trigger, test, PRIORITY_CRITICAL);
 
   scheduler.delayUntil(now + Micros(50));
   EXPECT_EQ(observed, expected);
@@ -309,12 +297,12 @@ TEST(Scheduler, DelayWithHeightenedPriority) {
 
   Uptime now = Uptime::Now();
   Uptime trigger = now + Micros(100);
-  ExecutionID id1 = scheduler.scheduleOn(&test, trigger, PRIORITY_BACKGROUND);
-  ExecutionID id2 = scheduler.scheduleOn(&test, trigger, PRIORITY_REDUCED);
-  ExecutionID id3 = scheduler.scheduleOn(&test, trigger, PRIORITY_NORMAL);
-  ExecutionID id4 = scheduler.scheduleOn(&test, trigger, PRIORITY_ELEVATED);
-  ExecutionID id5 = scheduler.scheduleOn(&test, trigger, PRIORITY_SENSITIVE);
-  ExecutionID id6 = scheduler.scheduleOn(&test, trigger, PRIORITY_CRITICAL);
+  ExecutionID id1 = scheduler.scheduleOn(trigger, test, PRIORITY_BACKGROUND);
+  ExecutionID id2 = scheduler.scheduleOn(trigger, test, PRIORITY_REDUCED);
+  ExecutionID id3 = scheduler.scheduleOn(trigger, test, PRIORITY_NORMAL);
+  ExecutionID id4 = scheduler.scheduleOn(trigger, test, PRIORITY_ELEVATED);
+  ExecutionID id5 = scheduler.scheduleOn(trigger, test, PRIORITY_SENSITIVE);
+  ExecutionID id6 = scheduler.scheduleOn(trigger, test, PRIORITY_CRITICAL);
   scheduler.delayUntil(now + Micros(50), PRIORITY_SENSITIVE);
   EXPECT_EQ(observed, expected);
   expected.push_back(id6);
@@ -344,7 +332,7 @@ TEST(Scheduler, LargeRandomTest) {
 
   for (int i = 0; i < 10000; ++i) {
     int64_t micros = rand() % 2000000;
-    ExecutionID id = scheduler.scheduleAfter(&test, Micros(micros));
+    ExecutionID id = scheduler.scheduleAfter(Micros(micros), test);
     expected.push_back(Experiment{.micros = micros, .id = id});
   }
   std::sort(expected.begin(), expected.end(),
@@ -378,7 +366,7 @@ TEST(Scheduler, LargeRandomCancellationTest) {
 
   for (int i = 0; i < 10000; ++i) {
     int64_t micros = rand() % 2000000;
-    ExecutionID id = scheduler.scheduleAfter(&test, Micros(micros));
+    ExecutionID id = scheduler.scheduleAfter(Micros(micros), test);
     expected.push_back(
         Experiment{.micros = micros, .id = id, .cancelled = false});
   }
@@ -423,7 +411,7 @@ TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
 
   for (int i = 0; i < 10000; ++i) {
     int64_t micros = rand() % 2000000;
-    ExecutionID id = scheduler.scheduleAfter(&test, Micros(micros));
+    ExecutionID id = scheduler.scheduleAfter(Micros(micros), test);
     expected.push_back(
         Experiment{.micros = micros, .id = id, .cancelled = false});
   }

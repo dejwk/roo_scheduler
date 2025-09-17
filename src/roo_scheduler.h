@@ -101,18 +101,30 @@ class Scheduler {
 
   // Schedules the specified task to be executed no earlier than at the
   // specified absolute time.
-  ExecutionID scheduleOn(Executable* task, roo_time::Uptime when,
+  ExecutionID scheduleOn(roo_time::Uptime when, Executable& task,
                          Priority priority = PRIORITY_NORMAL);
+
+  // DEPRECATED. Use scheduleOn(when, task, priority) instead.
+  ExecutionID scheduleOn(Executable* task, roo_time::Uptime when,
+                         Priority priority = PRIORITY_NORMAL) {
+    return scheduleOn(when, *task, priority);
+  }
 
   // Schedules the specified task to be executed no earlier than after the
   // specified delay.
-  ExecutionID scheduleAfter(Executable* task, roo_time::Interval delay,
+  ExecutionID scheduleAfter(roo_time::Interval delay, Executable& task,
                             Priority priority = PRIORITY_NORMAL);
 
+  // DEPRECATED. Use scheduleAfter(delay, task, priority) instead.
+  ExecutionID scheduleAfter(Executable* task, roo_time::Interval delay,
+                            Priority priority = PRIORITY_NORMAL) {
+    return scheduleAfter(delay, *task, priority);
+  }
+
   // Schedules the specified task to be executed ASAP.
-  ExecutionID scheduleNow(Executable* task,
+  ExecutionID scheduleNow(Executable& task,
                           Priority priority = PRIORITY_NORMAL) {
-    return scheduleOn(task, roo_time::Uptime::Now());
+    return scheduleOn(roo_time::Uptime::Now(), task, priority);
   }
 
   // Execute up to max_count of eligible task executions, whose scheduled time
@@ -196,17 +208,17 @@ class Scheduler {
   class Entry {
    public:
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
-    Entry(ExecutionID id, Executable* task, roo_time::Uptime when,
+    Entry(ExecutionID id, Executable& task, roo_time::Uptime when,
           Priority priority)
-        : id_(id), task_(task), when_(when), priority_(priority) {}
+        : id_(id), task_(&task), when_(when), priority_(priority) {}
 #else
-    Entry(ExecutionID id, Executable* task, roo_time::Uptime when,
+    Entry(ExecutionID id, Executable& task, roo_time::Uptime when,
           Priority priority)
-        : id_(id), task_(task), when_(when) {}
+        : id_(id), task_(&task), when_(when) {}
 #endif
 
     roo_time::Uptime when() const { return when_; }
-    Executable* task() const { return task_; }
+    Executable& task() const { return *task_; }
     ExecutionID id() const { return id_; }
 
     Priority priority() const {
@@ -251,7 +263,7 @@ class Scheduler {
 
   roo_time::Interval getNearestExecutionDelayWithLockHeld() const;
 
-  ExecutionID push(Executable* task, roo_time::Uptime when, Priority priority);
+  ExecutionID push(roo_time::Uptime when, Executable& task, Priority priority);
   void pop();
 
   // Returns true if has been executed; false if there was no eligible
@@ -308,8 +320,14 @@ class Task : public Executable {
 // approximately every 6 seconds.
 class RepetitiveTask : public Executable {
  public:
+  RepetitiveTask(Scheduler& scheduler, roo_time::Interval delay,
+                 std::function<void()> task,
+                 Priority priority = PRIORITY_NORMAL);
+
+  // DEPRECATED. Use RepetitiveTask(scheduler, delay, task, priority) instead.
   RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
-                 roo_time::Interval delay, Priority priority = PRIORITY_NORMAL);
+                 roo_time::Interval delay, Priority priority = PRIORITY_NORMAL)
+      : RepetitiveTask(scheduler, delay, std::move(task), priority) {}
 
   bool is_active() const { return active_; }
 
@@ -355,8 +373,13 @@ class RepetitiveTask : public Executable {
 // a backlog of late executions will build up.
 class PeriodicTask : public Executable {
  public:
+  PeriodicTask(Scheduler& scheduler, roo_time::Interval period,
+               std::function<void()> task, Priority priority = PRIORITY_NORMAL);
+
+  // DEPRECATED. Use PeriodicTask(scheduler, period, task, priority) instead.
   PeriodicTask(Scheduler& scheduler, std::function<void()> task,
-               roo_time::Interval period, Priority priority = PRIORITY_NORMAL);
+               roo_time::Interval period, Priority priority = PRIORITY_NORMAL)
+      : PeriodicTask(scheduler, period, std::move(task), priority) {}
 
   bool is_active() const { return active_; }
 

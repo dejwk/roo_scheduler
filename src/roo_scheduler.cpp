@@ -6,21 +6,21 @@ namespace roo_scheduler {
 
 Scheduler::Scheduler() : queue_(), next_execution_id_(0), canceled_(0) {}
 
-ExecutionID Scheduler::scheduleOn(Executable* task, roo_time::Uptime when,
+ExecutionID Scheduler::scheduleOn(roo_time::Uptime when, Executable& task,
                                   Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
   nonempty_.notify_all();
-  return push(task, when, priority);
+  return push(when, task, priority);
 }
 
-ExecutionID Scheduler::scheduleAfter(Executable* task, roo_time::Interval delay,
+ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay, Executable& task,
                                      Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
   nonempty_.notify_all();
-  return push(task, roo_time::Uptime::Now() + delay, priority);
+  return push(roo_time::Uptime::Now() + delay, task, priority);
 }
 
-ExecutionID Scheduler::push(Executable* task, roo_time::Uptime when,
+ExecutionID Scheduler::push(roo_time::Uptime when, Executable& task,
                             Priority priority) {
   ExecutionID id = next_execution_id_;
   ++next_execution_id_;
@@ -118,7 +118,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
     }
     while (!ready_.empty()) {
       const Entry& entry = ready_.front();
-      task = entry.task();
+      task = &entry.task();
       id = entry.id();
       bool canceled = canceled_.erase(id);
       if (!canceled && entry.priority() < min_priority) {
@@ -149,13 +149,13 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
   if (deadline > now) deadline = now;
   while (!queue_.empty() && queue_.front().when() <= deadline) {
     const Entry& entry = queue_.front();
-    Executable* task = entry.task();
+    Executable& task = entry.task();
     ExecutionID id = entry.id();
     bool canceled = canceled_.erase(id);
     pop();
     if (!canceled) {
       // Found an eligible task (not canceled, with high enough priority).
-      task->execute(id);
+      task.execute(id);
       return true;
     }
   }
@@ -232,8 +232,8 @@ void Scheduler::run() {
   }
 }
 
-RepetitiveTask::RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
-                               roo_time::Interval delay, Priority priority)
+RepetitiveTask::RepetitiveTask(Scheduler& scheduler, roo_time::Interval delay,
+                               std::function<void()> task, Priority priority)
     : scheduler_(scheduler),
       task_(task),
       id_(-1),
@@ -246,7 +246,7 @@ bool RepetitiveTask::start(roo_time::Interval initial_delay) {
   if (active_) return false;
   if (id_ >= 0) scheduler_.cancel(id_);
   active_ = true;
-  id_ = scheduler_.scheduleAfter(this, initial_delay, priority_);
+  id_ = scheduler_.scheduleAfter(initial_delay, *this, priority_);
   return true;
 }
 
@@ -260,15 +260,15 @@ void RepetitiveTask::execute(ExecutionID id) {
   if (id != id_ || !active_) return;
   task_();
   if (!active_) return;
-  id_ = scheduler_.scheduleAfter(this, delay_, priority_);
+  id_ = scheduler_.scheduleAfter(delay_, *this, priority_);
 }
 
 RepetitiveTask::~RepetitiveTask() {
   if (id_ >= 0) scheduler_.cancel(id_);
 }
 
-PeriodicTask::PeriodicTask(Scheduler& scheduler, std::function<void()> task,
-                           roo_time::Interval period, Priority priority)
+PeriodicTask::PeriodicTask(Scheduler& scheduler, roo_time::Interval period,
+                           std::function<void()> task, Priority priority)
     : scheduler_(scheduler),
       task_(task),
       id_(-1),
@@ -281,7 +281,7 @@ bool PeriodicTask::start(roo_time::Uptime when) {
   if (id_ >= 0) scheduler_.cancel(id_);
   active_ = true;
   next_ = when;
-  id_ = scheduler_.scheduleOn(this, next_, priority_);
+  id_ = scheduler_.scheduleOn(next_, *this, priority_);
   return true;
 }
 
@@ -296,7 +296,7 @@ void PeriodicTask::execute(ExecutionID id) {
   task_();
   next_ += period_;
   if (!active_) return;
-  id_ = scheduler_.scheduleOn(this, next_, priority_);
+  id_ = scheduler_.scheduleOn(next_, *this, priority_);
 }
 
 PeriodicTask::~PeriodicTask() {
@@ -308,19 +308,19 @@ SingletonTask::SingletonTask(Scheduler& scheduler, std::function<void()> task)
 
 void SingletonTask::scheduleOn(roo_time::Uptime when, Priority priority) {
   if (scheduled_) scheduler_.cancel(id_);
-  id_ = scheduler_.scheduleOn(this, when, priority);
+  id_ = scheduler_.scheduleOn(when, *this, priority);
   scheduled_ = true;
 }
 
 void SingletonTask::scheduleAfter(roo_time::Interval delay, Priority priority) {
   if (scheduled_) scheduler_.cancel(id_);
-  id_ = scheduler_.scheduleAfter(this, delay, priority);
+  id_ = scheduler_.scheduleAfter(delay, *this, priority);
   scheduled_ = true;
 }
 
 void SingletonTask::scheduleNow(Priority priority) {
   if (scheduled_) scheduler_.cancel(id_);
-  id_ = scheduler_.scheduleNow(this, priority);
+  id_ = scheduler_.scheduleNow(*this, priority);
   scheduled_ = true;
 }
 
@@ -341,14 +341,14 @@ IteratingTask::IteratingTask(Scheduler& scheduler, Iterator& iterator,
 
 bool IteratingTask::start(roo_time::Uptime when) {
   if (is_active()) return false;
-  id_ = scheduler_.scheduleOn(this, when);
+  id_ = scheduler_.scheduleOn(when, *this);
   return true;
 }
 
 void IteratingTask::execute(ExecutionID id) {
   int64_t next_delay_us = itr_.next();
   if (next_delay_us >= 0) {
-    id_ = scheduler_.scheduleAfter(this, roo_time::Micros(next_delay_us));
+    id_ = scheduler_.scheduleAfter(roo_time::Micros(next_delay_us), *this);
   } else {
     id_ = -1;
     // This is the last thing we do, so that if the callback invokes our

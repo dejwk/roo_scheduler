@@ -14,16 +14,14 @@ using namespace roo_scheduler;
 // allocated on startup (to back a queue with capacity of 8 elements).
 Scheduler scheduler;
 
-PeriodicTask task1(
-    scheduler, [] { Serial.printf("Tick: %d\n", millis() / 1000); },
-    Seconds(2));
+PeriodicTask task1(scheduler, Seconds(2),
+                   [] { Serial.printf("Tick: %d\n", millis() / 1000); });
 
-PeriodicTask task2(
-    scheduler, [] { Serial.printf("Tack: %d\n", millis() / 1000); },
-    Seconds(5));
+PeriodicTask task2(scheduler, Seconds(5),
+                   [] { Serial.printf("Tack: %d\n", millis() / 1000); });
 
-PeriodicTask task3(
-    scheduler, [] { Serial.printf("Toe: %d\n", millis() / 1000); }, Seconds(3));
+PeriodicTask task3(scheduler, Seconds(3),
+                   [] { Serial.printf("Toe: %d\n", millis() / 1000); });
 
 void setup() {
   Serial.begin(9600);
