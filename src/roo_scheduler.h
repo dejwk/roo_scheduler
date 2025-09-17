@@ -6,11 +6,10 @@
 
 #include "roo_collections.h"
 #include "roo_collections/flat_small_hash_set.h"
-#include "roo_time.h"
-
 #include "roo_threads.h"
 #include "roo_threads/condition_variable.h"
 #include "roo_threads/mutex.h"
+#include "roo_time.h"
 
 // A typical Arduino use case may look like the following:
 //
@@ -47,6 +46,30 @@ using ExecutionID = int32_t;
 // Deprecated; prefer ExecutionID.
 using EventID = ExecutionID;
 
+// Priority dictates the order in which eligible tasks are executed. Higher
+// priority tasks are executed first. Tasks with equal priority are executed in
+// the FIFO order.
+//
+// The task becomes eligible for execution when its scheduled time arrives. If
+// tasks complete quickly enough, and are spread in time sufficiently enough,
+// they are executed in the order of their scheduled time, regardless of
+// priority. In other words, priority only matters in case of contention, when
+// multiple tasks are eligible for execution at the same time.
+//
+// The priority is assigned when the task is scheduled, and it remains unchanged
+// for the lifetime of the scheduled execution. If a task is rescheduled, it may
+// be assigned a different priority.
+//
+// The priority has no effect on the scheduling time of the task; it only
+// affects the order in which eligible tasks are executed.
+//
+// The priority also affects the behavior of delay() and delayUntil(): those
+// methods guarantee that all tasks with priority equal or higher than the
+// specified priority will be executed before the method returns. Lower priority
+// tasks might not be executed.
+//
+// Use higher priorities for short-running tasks that are latency-sensitive,
+// and lower priorities for long-running tasks that are not latency-sensitive.
 enum Priority {
   PRIORITY_MINIMUM = 0,
   PRIORITY_BACKGROUND = 1,
