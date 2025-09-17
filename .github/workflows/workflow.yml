@@ -23,30 +23,10 @@ jobs:
         mv bazelisk-linux-amd64 "${GITHUB_WORKSPACE}/bin/bazel"
         chmod +x "${GITHUB_WORKSPACE}/bin/bazel"
 
-    - name: Install dependencies
-      run: |
-        mkdir .testing/lib
-        (cd .testing/lib;
-         curl -LO "https://github.com/dejwk/roo_backport/archive/refs/tags/1.0.2.zip";
-         unzip 1.0.2.zip;
-         mv roo_backport-1.0.2 roo_backport)
-        (cd .testing/lib;
-         curl -LO "https://github.com/dejwk/roo_collections/archive/refs/tags/1.2.0.zip";
-         unzip 1.2.0.zip;
-         mv roo_collections-1.2.0 roo_collections)
-        (cd .testing/lib;
-         curl -LO "https://github.com/dejwk/roo_time/archive/refs/tags/1.1.3.zip";
-         unzip 1.1.3.zip;
-         mv roo_time-1.1.3 roo_time)
-        (cd .testing/lib;
-         curl -LO "https://github.com/dejwk/roo_threads/archive/refs/tags/1.0.0.zip";
-         unzip 1.0.0.zip;
-         mv roo_threads-1.0.0 roo_threads)
-
     - name: Build
       run: |
-        (cd .testing; cp -Rf ../src .; ${GITHUB_WORKSPACE}/bin/bazel build :all)
+        ${GITHUB_WORKSPACE}/bin/bazel build //...
 
     - name: Test
       run: |
-        (cd .testing; ${GITHUB_WORKSPACE}/bin/bazel test :all)
+        ${GITHUB_WORKSPACE}/bin/bazel test //...
