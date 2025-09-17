@@ -100,8 +100,23 @@ class Scheduler {
   Scheduler();
 
   // Schedules the specified task to be executed no earlier than at the
-  // specified absolute time.
+  // specified absolute time. The caller must ensure that the task object
+  // remains valid until the scheduled execution occurs (or is canceled).
   ExecutionID scheduleOn(roo_time::Uptime when, Executable& task,
+                         Priority priority = PRIORITY_NORMAL);
+
+  // Schedules the specified task to be executed no earlier than at the
+  // specified absolute time. The scheduler takes ownership of the task object
+  // and will delete it after the scheduled execution occurs (or is canceled).
+  ExecutionID scheduleOn(roo_time::Uptime when,
+                         std::unique_ptr<Executable> task,
+                         Priority priority = PRIORITY_NORMAL);
+
+  // Schedules the specified callable to be executed no earlier than at the
+  // specified absolute time.
+  template <typename Callable,
+            typename = std::enable_if_t<std::is_invocable_v<Callable>>>
+  ExecutionID scheduleOn(roo_time::Uptime when, Callable task,
                          Priority priority = PRIORITY_NORMAL);
 
   // DEPRECATED. Use scheduleOn(when, task, priority) instead.
@@ -111,8 +126,23 @@ class Scheduler {
   }
 
   // Schedules the specified task to be executed no earlier than after the
-  // specified delay.
+  // specified delay. The caller must ensure that the task object
+  // remains valid until the scheduled execution occurs (or is canceled).
   ExecutionID scheduleAfter(roo_time::Interval delay, Executable& task,
+                            Priority priority = PRIORITY_NORMAL);
+
+  // Schedules the specified task to be executed no earlier than after the
+  // specified delay. The scheduler takes ownership of the task object
+  // and will delete it after the scheduled execution occurs (or is canceled).
+  ExecutionID scheduleAfter(roo_time::Interval delay,
+                            std::unique_ptr<Executable> task,
+                            Priority priority = PRIORITY_NORMAL);
+
+  // Schedules the specified callable to be executed no earlier than after the
+  // specified delay.
+  template <typename Callable,
+            typename = std::enable_if_t<std::is_invocable_v<Callable>>>
+  ExecutionID scheduleAfter(roo_time::Interval delay, Callable task,
                             Priority priority = PRIORITY_NORMAL);
 
   // DEPRECATED. Use scheduleAfter(delay, task, priority) instead.
@@ -121,10 +151,28 @@ class Scheduler {
     return scheduleAfter(delay, *task, priority);
   }
 
-  // Schedules the specified task to be executed ASAP.
+  // Schedules the specified task to be executed ASAP. The caller must ensure
+  // that the task object remains valid until the scheduled execution occurs (or
+  // is canceled).
   ExecutionID scheduleNow(Executable& task,
                           Priority priority = PRIORITY_NORMAL) {
     return scheduleOn(roo_time::Uptime::Now(), task, priority);
+  }
+
+  // Schedules the specified task to be executed ASAP. The scheduler takes
+  // ownership of the task object and will delete it after the scheduled
+  // execution occurs (or is canceled).
+  ExecutionID scheduleNow(std::unique_ptr<Executable> task,
+                          Priority priority = PRIORITY_NORMAL) {
+    return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
+  }
+
+  // Schedules the specified callable to be executed ASAP.
+  template <typename Callable,
+            typename = std::enable_if_t<std::is_invocable_v<Callable>>>
+  ExecutionID scheduleNow(Callable task, Priority priority = PRIORITY_NORMAL) {
+    return scheduleOn(roo_time::Uptime::Now(), std::forward<Callable>(task),
+                      priority);
   }
 
   // Execute up to max_count of eligible task executions, whose scheduled time
@@ -208,17 +256,21 @@ class Scheduler {
   class Entry {
    public:
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
-    Entry(ExecutionID id, Executable& task, roo_time::Uptime when,
-          Priority priority)
-        : id_(id), task_(&task), when_(when), priority_(priority) {}
+    Entry(ExecutionID id, Executable* task, bool owns_task,
+          roo_time::Uptime when, Priority priority)
+        : id_(id),
+          task_(task),
+          when_(when),
+          priority_(priority),
+          owns_task_(owns_task) {}
 #else
-    Entry(ExecutionID id, Executable& task, roo_time::Uptime when,
-          Priority priority)
-        : id_(id), task_(&task), when_(when) {}
+    Entry(ExecutionID id, Executable* task, bool owns_task,
+          roo_time::Uptime when, Priority priority)
+        : id_(id), task_(task), when_(when), owns_task_(owns_task) {}
 #endif
 
     roo_time::Uptime when() const { return when_; }
-    Executable& task() const { return *task_; }
+    Executable* task() const { return task_; }
     ExecutionID id() const { return id_; }
 
     Priority priority() const {
@@ -228,6 +280,8 @@ class Scheduler {
       return PRIORITY_NORMAL;
 #endif
     }
+
+    bool owns_task() const { return owns_task_; }
 
    private:
     friend struct TimeComparator;
@@ -239,6 +293,7 @@ class Scheduler {
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
     Priority priority_;
 #endif
+    bool owns_task_;
   };
 
   // Orders scheduled tasks in the queue by their nearest execution time.
@@ -263,7 +318,8 @@ class Scheduler {
 
   roo_time::Interval getNearestExecutionDelayWithLockHeld() const;
 
-  ExecutionID push(roo_time::Uptime when, Executable& task, Priority priority);
+  ExecutionID push(roo_time::Uptime when, Executable* task, bool owns_task,
+                   Priority priority);
   void pop();
 
   // Returns true if has been executed; false if there was no eligible
@@ -449,6 +505,41 @@ class SingletonTask : public Executable {
   ExecutionID id_;
   bool scheduled_;
 };
+
+// A simple wrapper for one-off tasks that self-destruct upon execution.
+
+template <typename Callable,
+          typename = std::enable_if_t<std::is_invocable_v<Callable>>>
+class OneOffTask : public Executable {
+ public:
+  OneOffTask(Callable task) : task_(std::forward<Callable>(task)) {}
+
+  void execute(ExecutionID id) override {
+    task_();
+    delete this;
+  }
+
+ private:
+  Callable task_;
+};
+
+template <typename Callable, typename>
+ExecutionID Scheduler::scheduleOn(roo_time::Uptime when, Callable task,
+                                  Priority priority) {
+  return scheduleOn(when,
+                    std::unique_ptr<Executable>(
+                        new OneOffTask<Callable>(std::forward<Callable>(task))),
+                    priority);
+}
+
+template <typename Callable, typename>
+ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay, Callable task,
+                                     Priority priority) {
+  return scheduleAfter(delay,
+                       std::unique_ptr<Executable>(new OneOffTask<Callable>(
+                           std::forward<Callable>(task))),
+                       priority);
+}
 
 class IteratingTask : public Executable {
  public:
