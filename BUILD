@@ -14,8 +14,23 @@ cc_library(
         "src",
     ],
     deps = [
-        "//lib/roo_collections",
-        "//lib/roo_time",
-        "//lib/roo_threads",
+        "@roo_collections",
+        "@roo_time",
+        "@roo_threads",
+    ],
+)
+
+cc_test(
+    name = "roo_scheduler_test",
+    srcs = [
+        "test/roo_scheduler_test.cpp",
+    ],
+    includes = ["src"],
+    copts = ["-Iexternal/gtest/include"],
+    linkstatic = 1,
+    deps = [
+        ":roo_scheduler",
+        "@roo_testing//:arduino_gtest_main",
+        "@googletest//:gtest",
     ],
 )

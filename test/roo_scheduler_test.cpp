@@ -2,47 +2,17 @@
 
 #include <atomic>
 #include <chrono>
-#include <thread>
 
 #include "gtest/gtest.h"
 #include "roo_time.h"
-
-static std::atomic<long> current_time_us = 0;
-
-namespace roo_time {
-
-const Uptime Uptime::Now() { return Uptime(current_time_us); }
-
-void Delay(Interval interval) { current_time_us += interval.inMicros(); }
-
-void DelayUntil(roo_time::Uptime when) {
-  if (when.inMicros() > current_time_us) {
-    current_time_us = when.inMicros();
-  }
-}
-
-}  // namespace roo_time
+#include "roo_testing/system/timer.h"
 
 namespace roo_scheduler {
-
-static std::atomic<bool> going = true;
-
-void real_time() {
-  const auto start = std::chrono::system_clock::now();
-  long arduino_start = current_time_us;
-  while (going) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    const auto elapsed = std::chrono::system_clock::now() - start;
-    current_time_us =
-        (arduino_start +
-         (std::chrono::duration_cast<std::chrono::microseconds>(elapsed))
-             .count());
-  }
-}
 
 using namespace roo_time;
 
 TEST(Scheduler, Now) {
+  system_time_set_auto_sync(false);
   int counter = 0;
   Scheduler scheduler;
   Task task([&counter] { ++counter; });
@@ -52,6 +22,7 @@ TEST(Scheduler, Now) {
 }
 
 TEST(Scheduler, Now3x) {
+  system_time_set_auto_sync(false);
   int counter = 0;
   Scheduler scheduler;
   Task task([&counter] { ++counter; });
@@ -63,6 +34,7 @@ TEST(Scheduler, Now3x) {
 }
 
 TEST(Scheduler, Repetitive) {
+  system_time_set_auto_sync(false);
   int counter = 0;
   Scheduler scheduler;
   RepetitiveTask task(
@@ -97,6 +69,7 @@ TEST(Scheduler, Repetitive) {
 }
 
 TEST(Scheduler, Periodic) {
+  system_time_set_auto_sync(false);
   int counter = 0;
   Scheduler scheduler;
   PeriodicTask task(
@@ -123,6 +96,7 @@ TEST(Scheduler, Periodic) {
 }
 
 TEST(Scheduler, RepetitiveImmediateDestruction) {
+  system_time_set_auto_sync(false);
   Scheduler scheduler;
   int counter = 0;
   {
@@ -141,6 +115,7 @@ TEST(Scheduler, RepetitiveImmediateDestruction) {
 }
 
 TEST(Scheduler, PeriodicImmediateDestruction) {
+  system_time_set_auto_sync(false);
   Scheduler scheduler;
   int counter = 0;
   {
@@ -159,6 +134,7 @@ TEST(Scheduler, PeriodicImmediateDestruction) {
 }
 
 TEST(Scheduler, SingletonImmediateDestruction) {
+  system_time_set_auto_sync(false);
   Scheduler scheduler;
   int counter = 0;
   {
@@ -174,6 +150,7 @@ TEST(Scheduler, SingletonImmediateDestruction) {
 }
 
 TEST(Scheduler, SingletonNonImmediateDestruction) {
+  system_time_set_auto_sync(false);
   Scheduler scheduler;
   int counter = 0;
   SingletonTask task1(scheduler, [&counter] {
@@ -200,6 +177,7 @@ struct TestTask : public Executable {
 };
 
 TEST(Scheduler, StableScheduleOrder) {
+  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
@@ -220,6 +198,7 @@ TEST(Scheduler, StableScheduleOrder) {
 }
 
 TEST(Scheduler, PriorityNoEffectWhenNotBackedUp) {
+  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
@@ -261,6 +240,7 @@ TEST(Scheduler, PriorityNoEffectWhenNotBackedUp) {
 }
 
 TEST(Scheduler, PriorityAppliedWhenBackedUp) {
+  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
@@ -291,9 +271,7 @@ TEST(Scheduler, PriorityAppliedWhenBackedUp) {
 }
 
 TEST(Scheduler, DelayWithNormalPriority) {
-  going = true;
-  std::thread rt(&real_time);
-
+  system_time_set_auto_sync(true);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
@@ -320,15 +298,10 @@ TEST(Scheduler, DelayWithNormalPriority) {
   expected.push_back(id1);
   scheduler.delayUntil(now + Micros(2000));
   EXPECT_EQ(observed, expected);
-
-  going = false;
-  rt.join();
 }
 
 TEST(Scheduler, DelayWithHeightenedPriority) {
-  going = true;
-  std::thread rt(&real_time);
-
+  system_time_set_auto_sync(true);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
@@ -354,12 +327,10 @@ TEST(Scheduler, DelayWithHeightenedPriority) {
   expected.push_back(id1);
   scheduler.delayUntil(now + Micros(2000));
   EXPECT_EQ(observed, expected);
-
-  going = false;
-  rt.join();
 }
 
 TEST(Scheduler, LargeRandomTest) {
+  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
 
@@ -392,6 +363,7 @@ TEST(Scheduler, LargeRandomTest) {
 }
 
 TEST(Scheduler, LargeRandomCancellationTest) {
+  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
 
@@ -436,6 +408,7 @@ TEST(Scheduler, LargeRandomCancellationTest) {
 }
 
 TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
+  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
 
