@@ -131,7 +131,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
     roo::lock_guard<roo::mutex> lock(mutex_);
     // Move all due tasks to the ready queue.
     while (!queue_.empty() && queue_.front().when() <= deadline) {
-      ready_.push_back(queue_.front());
+      ready_.push_back(std::move(queue_.front()));
       std::push_heap(ready_.begin(), ready_.end(), PriorityComparator());
       pop();
     }
@@ -233,7 +233,7 @@ void Scheduler::pruneCanceled() {
       if (queue_[i].owns_task()) {
         delete queue_[i].task();
       }
-      queue_[i] = queue_.back();
+      queue_[i] = std::move(queue_.back());
       queue_.pop_back();
     } else {
       ++i;

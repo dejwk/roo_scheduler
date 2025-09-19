@@ -263,11 +263,60 @@ class Scheduler {
           when_(when),
           priority_(priority),
           owns_task_(owns_task) {}
+
+    Entry(Entry&& other)
+        : id_(other.id_),
+          task_(other.task_),
+          when_(other.when_),
+          priority_(other.priority_),
+          owns_task_(other.owns_task_) {
+      other.task_ = nullptr;
+      other.owns_task_ = false;
+    }
+
+    Entry& operator=(Entry&& other) {
+      id_ = other.id_;
+      task_ = other.task_;
+      when_ = other.when_;
+      priority_ = other.priority_;
+      owns_task_ = other.owns_task_;
+      other.task_ = nullptr;
+      other.owns_task_ = false;
+      return *this;
+    }
+
 #else
     Entry(ExecutionID id, Executable* task, bool owns_task,
           roo_time::Uptime when, Priority priority)
         : id_(id), task_(task), when_(when), owns_task_(owns_task) {}
+
+    Entry(Entry&& other)
+        : id_(other.id_),
+          task_(other.task_),
+          when_(other.when_),
+          owns_task_(other.owns_task_) {
+      other.owns_task_ = false;
+    }
+
+    Entry& operator=(Entry&& other) {
+      id_ = other.id_;
+      task_ = other.task_;
+      when_ = other.when_;
+      owns_task_ = other.owns_task_;
+      other.task_ = nullptr;
+      other.owns_task_ = false;
+      return *this;
+    }
 #endif
+
+    Entry(const Entry& other) = delete;
+    Entry& operator=(const Entry& other) = delete;
+
+    ~Entry() {
+      if (owns_task_) {
+        delete task_;
+      }
+    }
 
     roo_time::Uptime when() const { return when_; }
     Executable* task() const { return task_; }
