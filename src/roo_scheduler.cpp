@@ -125,8 +125,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
                                         Priority min_priority) {
   roo_time::Uptime now = roo_time::Uptime::Now();
   if (deadline > now) deadline = now;
-  Executable* task = nullptr;
-  ExecutionID id;
+  Entry to_execute;
   {
     roo::lock_guard<roo::mutex> lock(mutex_);
     // Move all due tasks to the ready queue.
@@ -136,33 +135,32 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
       pop();
     }
     while (!ready_.empty()) {
-      const Entry& entry = ready_.front();
-      id = entry.id();
-      bool canceled = canceled_.erase(id);
+      Entry& entry = ready_.front();
+      bool canceled = canceled_.erase(entry.id());
       if (canceled) {
-        if (entry.owns_task()) {
-          delete entry.task();
-        }
+        // if (entry.owns_task()) {
+        //   delete entry.task();
+        // }
       } else {
         if (entry.priority() < min_priority) {
           // Next ready task is too low priority.
           return false;
         }
-        task = entry.task();
+        to_execute = std::move(entry);
       }
       std::pop_heap(ready_.begin(), ready_.end(), PriorityComparator());
       ready_.pop_back();
-      if (task != nullptr) {
+      if (to_execute.task() != nullptr) {
         // Found an eligible task (not canceled, with high enough priority).
         break;
       }
     }
   }
-  if (task == nullptr) {
+  if (to_execute.task() == nullptr) {
     // No ready tasks.
     return false;
   }
-  task->execute(id);
+  to_execute.task()->execute(to_execute.id());
   return true;
 }
 #else

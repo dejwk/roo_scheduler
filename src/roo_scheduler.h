@@ -256,6 +256,13 @@ class Scheduler {
   class Entry {
    public:
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
+    Entry()
+        : id_(0),
+          task_(nullptr),
+          when_(roo_time::Uptime::Max()),
+          priority_(PRIORITY_NORMAL),
+          owns_task_(false) {}
+
     Entry(ExecutionID id, Executable* task, bool owns_task,
           roo_time::Uptime when, Priority priority)
         : id_(id),
@@ -286,7 +293,13 @@ class Scheduler {
     }
 
 #else
-    Entry(ExecutionID id, Executable* task, bool owns_task,
+    Entry()
+        : id_(0),
+          task_(nullptr),
+          when_(roo_time::Uptime::Max()),
+          owns_task_(false) {}
+
+          Entry(ExecutionID id, Executable* task, bool owns_task,
           roo_time::Uptime when, Priority priority)
         : id_(id), task_(task), when_(when), owns_task_(owns_task) {}
 
@@ -555,39 +568,41 @@ class SingletonTask : public Executable {
   bool scheduled_;
 };
 
-// A simple wrapper for one-off tasks that self-destruct upon execution.
+namespace internal {
 
+// A simple executable wrapper for arbitrary callables.
 template <typename Callable,
           typename = std::enable_if_t<std::is_invocable_v<Callable>>>
 class OneOffTask : public Executable {
  public:
   OneOffTask(Callable task) : task_(std::forward<Callable>(task)) {}
 
-  void execute(ExecutionID id) override {
-    task_();
-    delete this;
-  }
+  void execute(ExecutionID id) override { task_(); }
 
  private:
   Callable task_;
 };
 
+}  // namespace internal
+
 template <typename Callable, typename>
 ExecutionID Scheduler::scheduleOn(roo_time::Uptime when, Callable task,
                                   Priority priority) {
-  return scheduleOn(when,
-                    std::unique_ptr<Executable>(
-                        new OneOffTask<Callable>(std::forward<Callable>(task))),
-                    priority);
+  return scheduleOn(
+      when,
+      std::unique_ptr<Executable>(
+          new internal::OneOffTask<Callable>(std::forward<Callable>(task))),
+      priority);
 }
 
 template <typename Callable, typename>
 ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay, Callable task,
                                      Priority priority) {
-  return scheduleAfter(delay,
-                       std::unique_ptr<Executable>(new OneOffTask<Callable>(
-                           std::forward<Callable>(task))),
-                       priority);
+  return scheduleAfter(
+      delay,
+      std::unique_ptr<Executable>(
+          new internal::OneOffTask<Callable>(std::forward<Callable>(task))),
+      priority);
 }
 
 class IteratingTask : public Executable {
