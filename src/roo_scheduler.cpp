@@ -285,9 +285,17 @@ void Scheduler::delayUntil(roo_time::Uptime deadline, Priority min_priority) {
 void Scheduler::run() {
   while (true) {
     executeEligibleTasks();
-    roo::unique_lock<roo::mutex> lock(mutex_);
-    roo_time::Interval delay = getNearestExecutionDelayWithLockHeld();
-    nonempty_.wait_for(lock, delay);
+    {
+      roo::unique_lock<roo::mutex> lock(mutex_);
+      roo_time::Interval delay = getNearestExecutionDelayWithLockHeld();
+      if (delay > roo_time::Interval()) {
+        if (delay == roo_time::Interval::Max()) {
+          nonempty_.wait(lock);
+        } else {
+          nonempty_.wait_for(lock, delay);
+        }
+      }
+    }
   }
 }
 
