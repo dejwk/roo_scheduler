@@ -446,4 +446,84 @@ TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
   ASSERT_EQ(i, expected.size());
 }
 
+TEST(Scheduler, ScheduleOneOffTaskWithCallable) {
+  Scheduler scheduler;
+  std::atomic<int> counter{0};
+
+  // Schedule a one-off task using a lambda.
+  scheduler.scheduleNow([&]() { counter++; });
+
+  // Execute eligible tasks.
+  scheduler.executeEligibleTasks();
+
+  EXPECT_EQ(counter.load(), 1);
+}
+
+TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutable) {
+  Scheduler scheduler;
+  std::atomic<int> counter{0};
+
+  // Define a custom Executable.
+  class MyTask : public Executable {
+   public:
+    MyTask(std::atomic<int>& counter) : counter_(counter) {}
+    void execute(ExecutionID) override { counter_++; }
+
+   private:
+    std::atomic<int>& counter_;
+  };
+
+  // Schedule a one-off task using unique_ptr<Executable>.
+  scheduler.scheduleNow(std::unique_ptr<Executable>(new MyTask(counter)));
+
+  // Execute eligible tasks.
+  scheduler.executeEligibleTasks();
+
+  EXPECT_EQ(counter.load(), 1);
+}
+
+TEST(Scheduler, ScheduleOneOffTaskWithCallableAfterDelay) {
+  system_time_set_auto_sync(false);
+  Scheduler scheduler;
+  std::atomic<int> counter{0};
+
+  // Schedule a one-off task with a delay.
+  scheduler.scheduleAfter(Millis(10), [&]() { counter++; });
+
+  // Should not execute yet.
+  scheduler.executeEligibleTasks();
+  EXPECT_EQ(counter.load(), 0);
+
+  roo_time::Delay(Millis(10));
+  scheduler.executeEligibleTasks();
+
+  EXPECT_EQ(counter.load(), 1);
+}
+
+TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutableAfterDelay) {
+  system_time_set_auto_sync(false);
+  Scheduler scheduler;
+  std::atomic<int> counter{0};
+
+  class MyTask : public Executable {
+   public:
+    MyTask(std::atomic<int>& counter) : counter_(counter) {}
+    void execute(ExecutionID) override { counter_++; }
+
+   private:
+    std::atomic<int>& counter_;
+  };
+
+  scheduler.scheduleAfter(Millis(10),
+                          std::unique_ptr<Executable>(new MyTask(counter)));
+
+  scheduler.executeEligibleTasks();
+  EXPECT_EQ(counter.load(), 0);
+
+  roo_time::Delay(Millis(10));
+  scheduler.executeEligibleTasks();
+
+  EXPECT_EQ(counter.load(), 1);
+}
+
 }  // namespace roo_scheduler
