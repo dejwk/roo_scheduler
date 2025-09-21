@@ -21,6 +21,14 @@ ExecutionID Scheduler::scheduleOn(roo_time::Uptime when,
   return push(when, task.release(), true, priority);
 }
 
+ExecutionID Scheduler::scheduleOn(roo_time::Uptime when,
+                                  std::function<void()> task,
+                                  Priority priority) {
+  roo::lock_guard<roo::mutex> lock(mutex_);
+  nonempty_.notify_all();
+  return push(when, new Task(std::move(task)), true, priority);
+}
+
 ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay, Executable& task,
                                      Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
@@ -34,6 +42,15 @@ ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay,
   roo::lock_guard<roo::mutex> lock(mutex_);
   nonempty_.notify_all();
   return push(roo_time::Uptime::Now() + delay, task.release(), true, priority);
+}
+
+ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay,
+                                     std::function<void()> task,
+                                     Priority priority) {
+  roo::lock_guard<roo::mutex> lock(mutex_);
+  nonempty_.notify_all();
+  return push(roo_time::Uptime::Now() + delay, new Task(std::move(task)), true,
+              priority);
 }
 
 ExecutionID Scheduler::push(roo_time::Uptime when, Executable* task,

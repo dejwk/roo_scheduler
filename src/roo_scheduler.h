@@ -114,9 +114,7 @@ class Scheduler {
 
   // Schedules the specified callable to be executed no earlier than at the
   // specified absolute time.
-  template <typename Callable,
-            typename = std::enable_if_t<std::is_invocable_v<Callable>>>
-  ExecutionID scheduleOn(roo_time::Uptime when, Callable task,
+  ExecutionID scheduleOn(roo_time::Uptime when, std::function<void()> task,
                          Priority priority = PRIORITY_NORMAL);
 
   // DEPRECATED. Use scheduleOn(when, task, priority) instead.
@@ -140,9 +138,8 @@ class Scheduler {
 
   // Schedules the specified callable to be executed no earlier than after the
   // specified delay.
-  template <typename Callable,
-            typename = std::enable_if_t<std::is_invocable_v<Callable>>>
-  ExecutionID scheduleAfter(roo_time::Interval delay, Callable task,
+  ExecutionID scheduleAfter(roo_time::Interval delay,
+                            std::function<void()> task,
                             Priority priority = PRIORITY_NORMAL);
 
   // DEPRECATED. Use scheduleAfter(delay, task, priority) instead.
@@ -168,11 +165,9 @@ class Scheduler {
   }
 
   // Schedules the specified callable to be executed ASAP.
-  template <typename Callable,
-            typename = std::enable_if_t<std::is_invocable_v<Callable>>>
-  ExecutionID scheduleNow(Callable task, Priority priority = PRIORITY_NORMAL) {
-    return scheduleOn(roo_time::Uptime::Now(), std::forward<Callable>(task),
-                      priority);
+  ExecutionID scheduleNow(std::function<void()> task,
+                          Priority priority = PRIORITY_NORMAL) {
+    return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
   }
 
   // Execute up to max_count of eligible task executions, whose scheduled time
@@ -299,7 +294,7 @@ class Scheduler {
           when_(roo_time::Uptime::Max()),
           owns_task_(false) {}
 
-          Entry(ExecutionID id, Executable* task, bool owns_task,
+    Entry(ExecutionID id, Executable* task, bool owns_task,
           roo_time::Uptime when, Priority priority)
         : id_(id), task_(task), when_(when), owns_task_(owns_task) {}
 
@@ -567,43 +562,6 @@ class SingletonTask : public Executable {
   ExecutionID id_;
   bool scheduled_;
 };
-
-namespace internal {
-
-// A simple executable wrapper for arbitrary callables.
-template <typename Callable,
-          typename = std::enable_if_t<std::is_invocable_v<Callable>>>
-class OneOffTask : public Executable {
- public:
-  OneOffTask(Callable task) : task_(std::forward<Callable>(task)) {}
-
-  void execute(ExecutionID id) override { task_(); }
-
- private:
-  Callable task_;
-};
-
-}  // namespace internal
-
-template <typename Callable, typename>
-ExecutionID Scheduler::scheduleOn(roo_time::Uptime when, Callable task,
-                                  Priority priority) {
-  return scheduleOn(
-      when,
-      std::unique_ptr<Executable>(
-          new internal::OneOffTask<Callable>(std::forward<Callable>(task))),
-      priority);
-}
-
-template <typename Callable, typename>
-ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay, Callable task,
-                                     Priority priority) {
-  return scheduleAfter(
-      delay,
-      std::unique_ptr<Executable>(
-          new internal::OneOffTask<Callable>(std::forward<Callable>(task))),
-      priority);
-}
 
 class IteratingTask : public Executable {
  public:
