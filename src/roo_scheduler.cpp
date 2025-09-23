@@ -191,10 +191,10 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
           // Next ready task is too low priority.
           return false;
         }
-        to_execute == std::move(entry);
+        to_execute = std::move(entry);
       }
       pop();
-      if (to_execute.task != nullptr) {
+      if (to_execute.task() != nullptr) {
         // Found an eligible task (not canceled, with high enough priority).
         break;
       }
