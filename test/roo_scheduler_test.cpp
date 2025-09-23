@@ -446,6 +446,100 @@ TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
   ASSERT_EQ(i, expected.size());
 }
 
+TEST(Scheduler, LargeRandomCancellationTestOwnedTasks) {
+  system_time_set_auto_sync(false);
+  Scheduler scheduler;
+  std::vector<ExecutionID> observed;
+
+  struct Experiment {
+    int64_t micros;
+    ExecutionID id;
+    bool cancelled;
+  };
+  std::vector<Experiment> expected;
+
+  for (int i = 0; i < 10000; ++i) {
+    int64_t micros = rand() % 2000000;
+    ExecutionID id = scheduler.scheduleAfter(
+        Micros(micros), std::unique_ptr<Executable>(new TestTask(observed)));
+    expected.push_back(
+        Experiment{.micros = micros, .id = id, .cancelled = false});
+  }
+  for (int i = 0; i < 2000; ++i) {
+    int64_t pos = rand() % 10000;
+    scheduler.cancel(expected[pos].id);
+    expected[pos].cancelled = true;
+  }
+  expected.erase(
+      std::remove_if(expected.begin(), expected.end(),
+                     [](const Experiment& e) { return e.cancelled; }),
+      expected.end());
+
+  std::sort(expected.begin(), expected.end(),
+            [](const Experiment& a, const Experiment& b) {
+              return a.micros < b.micros ||
+                     (a.micros == b.micros && a.id < b.id);
+            });
+  Delay(Seconds(2));
+  int i = 0;
+  while (!scheduler.executeEligibleTasks(1)) {
+    EXPECT_EQ(observed[i], expected[i].id)
+        << "at " << i << "; expected time: " << expected[i].micros;
+    ++i;
+  }
+  ASSERT_EQ(i, expected.size());
+}
+
+TEST(Scheduler, LargeRandomCancellationTestOwnedTasksWithPruning) {
+  system_time_set_auto_sync(false);
+  Scheduler scheduler;
+  std::vector<ExecutionID> observed;
+
+  struct Experiment {
+    int64_t micros;
+    ExecutionID id;
+    bool cancelled;
+  };
+  std::vector<Experiment> expected;
+
+  for (int i = 0; i < 10000; ++i) {
+    int64_t micros = rand() % 2000000;
+    ExecutionID id = scheduler.scheduleAfter(
+        Micros(micros), std::unique_ptr<Executable>(new TestTask(observed)));
+    expected.push_back(
+        Experiment{.micros = micros, .id = id, .cancelled = false});
+  }
+  for (int i = 0; i < 1000; ++i) {
+    int64_t pos = rand() % 10000;
+    scheduler.cancel(expected[pos].id);
+    expected[pos].cancelled = true;
+  }
+  scheduler.pruneCanceled();
+  for (int i = 0; i < 1000; ++i) {
+    int64_t pos = rand() % 10000;
+    scheduler.cancel(expected[pos].id);
+    expected[pos].cancelled = true;
+  }
+  expected.erase(
+      std::remove_if(expected.begin(), expected.end(),
+                     [](const Experiment& e) { return e.cancelled; }),
+      expected.end());
+
+  std::sort(expected.begin(), expected.end(),
+            [](const Experiment& a, const Experiment& b) {
+              return a.micros < b.micros ||
+                     (a.micros == b.micros && a.id < b.id);
+            });
+  Delay(Seconds(2));
+  int i = 0;
+  while (!scheduler.executeEligibleTasks(1)) {
+    EXPECT_EQ(observed[i], expected[i].id)
+        << "at " << i << "; expected time: " << expected[i].micros;
+    ++i;
+  }
+  ASSERT_EQ(i, expected.size());
+}
+
 TEST(Scheduler, ScheduleOneOffTaskWithCallable) {
   Scheduler scheduler;
   std::atomic<int> counter{0};

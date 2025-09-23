@@ -77,9 +77,6 @@ void Scheduler::pop() {
     }
     ExecutionID id = queue_.front().id();
     if (!canceled_.erase(id)) return;
-    if (queue_.front().owns_task()) {
-      delete queue_.front().task();
-    }
     std::pop_heap(queue_.begin(), queue_.end(), TimeComparator());
     queue_.pop_back();
   }
@@ -154,11 +151,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
     while (!ready_.empty()) {
       Entry& entry = ready_.front();
       bool canceled = canceled_.erase(entry.id());
-      if (canceled) {
-        // if (entry.owns_task()) {
-        //   delete entry.task();
-        // }
-      } else {
+      if (!canceled) {
         if (entry.priority() < min_priority) {
           // Next ready task is too low priority.
           return false;
@@ -185,35 +178,34 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
                                         Priority min_priority) {
   roo_time::Uptime now = roo_time::Uptime::Now();
   if (deadline > now) deadline = now;
-  Executable* task = nullptr;
+  Entry to_execute;
   {
     roo::lock_guard<roo::mutex> lock(mutex_);
     // Process all due tasks.
     while (!queue_.empty() && queue_.front().when() <= deadline) {
-      const Entry& entry = queue_.front();
-      ExecutionID id = entry.id();
-      bool canceled = canceled_.erase(id);
-      if (canceled) {
-        if (entry.owns_task()) {
-          delete entry.task();
+      Entry& entry = queue_.front();
+      // ExecutionID id = entry.id();
+      bool canceled = canceled_.erase(entry.id());
+      if (!canceled) {
+        if (entry.priority() < min_priority) {
+          // Next ready task is too low priority.
+          return false;
         }
-      } else {
-        task = entry.task();
+        to_execute == std::move(entry);
       }
       pop();
-      if (task != nullptr) {
+      if (to_execute.task != nullptr) {
         // Found an eligible task (not canceled, with high enough priority).
         break;
       }
     }
   }
-  if (task == nullptr) {
+  if (to_execute.task() == nullptr) {
     // No ready tasks.
     return false;
   }
-  task->execute(id);
+  to_execute.task()->execute(to_execute.id());
   return true;
-}
 }
 #endif
 
@@ -227,9 +219,6 @@ void Scheduler::cancel(ExecutionID id) {
   // can be immediately removed.
   if (queue_.front().id() == id) {
     // Found, indeed!
-    if (queue_.front().owns_task()) {
-      delete queue_.front().task();
-    }
     pop();
     return;
   }
@@ -245,9 +234,6 @@ void Scheduler::pruneCanceled() {
   while (i < queue_.size()) {
     if (canceled_.erase(queue_[i].id())) {
       modified = true;
-      if (queue_[i].owns_task()) {
-        delete queue_[i].task();
-      }
       queue_[i] = std::move(queue_.back());
       queue_.pop_back();
     } else {

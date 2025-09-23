@@ -277,6 +277,8 @@ class Scheduler {
     }
 
     Entry& operator=(Entry&& other) {
+      if (this == &other) return *this;
+      if (owns_task_) { delete task_; }
       id_ = other.id_;
       task_ = other.task_;
       when_ = other.when_;
@@ -307,6 +309,8 @@ class Scheduler {
     }
 
     Entry& operator=(Entry&& other) {
+      if (this == &other) return *this;
+      if (owns_task_) { delete task_; }
       id_ = other.id_;
       task_ = other.task_;
       when_ = other.when_;
