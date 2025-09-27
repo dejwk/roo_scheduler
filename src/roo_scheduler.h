@@ -117,11 +117,13 @@ class Scheduler {
   ExecutionID scheduleOn(roo_time::Uptime when, std::function<void()> task,
                          Priority priority = PRIORITY_NORMAL);
 
+#ifndef ROO_SCHEDULER_NO_DEPRECATED
   // DEPRECATED. Use scheduleOn(when, task, priority) instead.
   ExecutionID scheduleOn(Executable* task, roo_time::Uptime when,
                          Priority priority = PRIORITY_NORMAL) {
     return scheduleOn(when, *task, priority);
   }
+#endif
 
   // Schedules the specified task to be executed no earlier than after the
   // specified delay. The caller must ensure that the task object
@@ -142,11 +144,13 @@ class Scheduler {
                             std::function<void()> task,
                             Priority priority = PRIORITY_NORMAL);
 
+#ifndef ROO_SCHEDULER_NO_DEPRECATED
   // DEPRECATED. Use scheduleAfter(delay, task, priority) instead.
   ExecutionID scheduleAfter(Executable* task, roo_time::Interval delay,
                             Priority priority = PRIORITY_NORMAL) {
     return scheduleAfter(delay, *task, priority);
   }
+#endif
 
   // Schedules the specified task to be executed ASAP. The caller must ensure
   // that the task object remains valid until the scheduled execution occurs (or
@@ -173,7 +177,10 @@ class Scheduler {
   // Execute up to max_count of eligible task executions, whose scheduled time
   // is not greater than the time of invocation. Returns true if the queue has
   // been cleared; false if some eligible executions have remained in the queue.
-  bool executeEligibleTasksUpToNow(Priority min_priority, int max_count = -1) {
+  // If `min_priority` is specified, ignores (does not execute) tasks with
+  // priority lower than min_priority.
+  bool executeEligibleTasksUpToNow(Priority min_priority = PRIORITY_MINIMUM,
+                                   int max_count = -1) {
     return executeEligibleTasksUpTo(roo_time::Uptime::Now(), min_priority,
                                     max_count);
   }
@@ -181,8 +188,11 @@ class Scheduler {
   // Execute up to max_count of eligible task executions, whose scheduled time
   // is not greater than the specified deadline. Returns true if the queue has
   // been cleared; false if some eligible executions have remained in the queue.
+  // If `min_priority` is specified, ignores (does not execute) tasks with
+  // priority lower than min_priority.
   bool executeEligibleTasksUpTo(roo_time::Uptime deadline,
-                                Priority min_priority, int max_count = -1);
+                                Priority min_priority = PRIORITY_MINIMUM,
+                                int max_count = -1);
 
   // Execute up to max_count of eligible task executions, of at least the
   // specified priority. Returns true if the queue has been cleared; false if
@@ -278,7 +288,9 @@ class Scheduler {
 
     Entry& operator=(Entry&& other) {
       if (this == &other) return *this;
-      if (owns_task_) { delete task_; }
+      if (owns_task_) {
+        delete task_;
+      }
       id_ = other.id_;
       task_ = other.task_;
       when_ = other.when_;
@@ -310,7 +322,9 @@ class Scheduler {
 
     Entry& operator=(Entry&& other) {
       if (this == &other) return *this;
-      if (owns_task_) { delete task_; }
+      if (owns_task_) {
+        delete task_;
+      }
       id_ = other.id_;
       task_ = other.task_;
       when_ = other.when_;
@@ -441,10 +455,12 @@ class RepetitiveTask : public Executable {
                  std::function<void()> task,
                  Priority priority = PRIORITY_NORMAL);
 
+#ifndef ROO_SCHEDULER_NO_DEPRECATED
   // DEPRECATED. Use RepetitiveTask(scheduler, delay, task, priority) instead.
   RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
                  roo_time::Interval delay, Priority priority = PRIORITY_NORMAL)
       : RepetitiveTask(scheduler, delay, std::move(task), priority) {}
+#endif
 
   bool is_active() const { return active_; }
 
@@ -493,10 +509,12 @@ class PeriodicTask : public Executable {
   PeriodicTask(Scheduler& scheduler, roo_time::Interval period,
                std::function<void()> task, Priority priority = PRIORITY_NORMAL);
 
+#ifndef ROO_SCHEDULER_NO_DEPRECATED
   // DEPRECATED. Use PeriodicTask(scheduler, period, task, priority) instead.
   PeriodicTask(Scheduler& scheduler, std::function<void()> task,
                roo_time::Interval period, Priority priority = PRIORITY_NORMAL)
       : PeriodicTask(scheduler, period, std::move(task), priority) {}
+#endif
 
   bool is_active() const { return active_; }
 
