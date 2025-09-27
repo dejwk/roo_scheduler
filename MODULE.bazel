@@ -1,4 +1,4 @@
-module(name = "roo_scheduler", version = "2.1.1")
+module(name = "roo_scheduler", version = "2.1.2")
 
 bazel_dep(name = "roo_testing", version = "1.1.2")
 
