@@ -29,14 +29,14 @@ ExecutionID Scheduler::scheduleOn(roo_time::Uptime when,
   return push(when, new Task(std::move(task)), true, priority);
 }
 
-ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay, Executable& task,
+ExecutionID Scheduler::scheduleAfter(roo_time::Duration delay, Executable& task,
                                      Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
   nonempty_.notify_all();
   return push(roo_time::Uptime::Now() + delay, &task, false, priority);
 }
 
-ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay,
+ExecutionID Scheduler::scheduleAfter(roo_time::Duration delay,
                                      std::unique_ptr<Executable> task,
                                      Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
@@ -44,7 +44,7 @@ ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay,
   return push(roo_time::Uptime::Now() + delay, task.release(), true, priority);
 }
 
-ExecutionID Scheduler::scheduleAfter(roo_time::Interval delay,
+ExecutionID Scheduler::scheduleAfter(roo_time::Duration delay,
                                      std::function<void()> task,
                                      Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
@@ -115,23 +115,23 @@ roo_time::Uptime Scheduler::getNearestExecutionTimeWithLockHeld() const {
   return roo_time::Uptime::Max();
 }
 
-roo_time::Interval Scheduler::getNearestExecutionDelay() const {
+roo_time::Duration Scheduler::getNearestExecutionDelay() const {
   roo::lock_guard<roo::mutex> lock(mutex_);
   return getNearestExecutionDelayWithLockHeld();
 }
 
-roo_time::Interval Scheduler::getNearestExecutionDelayWithLockHeld() const {
+roo_time::Duration Scheduler::getNearestExecutionDelayWithLockHeld() const {
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
   if (!ready_.empty()) {
-    return roo_time::Interval();
+    return roo_time::Duration();
   }
 #endif
   if (!queue_.empty()) {
     roo_time::Uptime next = queue_.front().when();
     roo_time::Uptime now = roo_time::Uptime::Now();
-    return (next < now ? roo_time::Interval() : next - now);
+    return (next < now ? roo_time::Duration() : next - now);
   }
-  return roo_time::Interval::Max();
+  return roo_time::Duration::Max();
 }
 
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
@@ -249,7 +249,7 @@ void Scheduler::pruneCanceled() {
   }
 }
 
-void Scheduler::delay(roo_time::Interval delay, Priority min_priority) {
+void Scheduler::delay(roo_time::Duration delay, Priority min_priority) {
   delayUntil(roo_time::Uptime::Now() + delay, min_priority);
 }
 
@@ -273,9 +273,9 @@ void Scheduler::run() {
     executeEligibleTasks();
     {
       roo::unique_lock<roo::mutex> lock(mutex_);
-      roo_time::Interval delay = getNearestExecutionDelayWithLockHeld();
-      if (delay > roo_time::Interval()) {
-        if (delay == roo_time::Interval::Max()) {
+      roo_time::Duration delay = getNearestExecutionDelayWithLockHeld();
+      if (delay > roo_time::Duration()) {
+        if (delay == roo_time::Duration::Max()) {
           nonempty_.wait(lock);
         } else {
           nonempty_.wait_for(lock, delay);
@@ -285,7 +285,7 @@ void Scheduler::run() {
   }
 }
 
-RepetitiveTask::RepetitiveTask(Scheduler& scheduler, roo_time::Interval delay,
+RepetitiveTask::RepetitiveTask(Scheduler& scheduler, roo_time::Duration delay,
                                std::function<void()> task, Priority priority)
     : scheduler_(scheduler),
       task_(task),
@@ -295,7 +295,7 @@ RepetitiveTask::RepetitiveTask(Scheduler& scheduler, roo_time::Interval delay,
       delay_(delay) {}
 
 // Starts the task, scheduling the next execution after the specified delay.
-bool RepetitiveTask::start(roo_time::Interval initial_delay) {
+bool RepetitiveTask::start(roo_time::Duration initial_delay) {
   if (active_) return false;
   if (id_ >= 0) scheduler_.cancel(id_);
   active_ = true;
@@ -320,7 +320,7 @@ RepetitiveTask::~RepetitiveTask() {
   if (id_ >= 0) scheduler_.cancel(id_);
 }
 
-PeriodicTask::PeriodicTask(Scheduler& scheduler, roo_time::Interval period,
+PeriodicTask::PeriodicTask(Scheduler& scheduler, roo_time::Duration period,
                            std::function<void()> task, Priority priority)
     : scheduler_(scheduler),
       task_(task),
@@ -365,7 +365,7 @@ void SingletonTask::scheduleOn(roo_time::Uptime when, Priority priority) {
   scheduled_ = true;
 }
 
-void SingletonTask::scheduleAfter(roo_time::Interval delay, Priority priority) {
+void SingletonTask::scheduleAfter(roo_time::Duration delay, Priority priority) {
   if (scheduled_) scheduler_.cancel(id_);
   id_ = scheduler_.scheduleAfter(delay, *this, priority);
   scheduled_ = true;

@@ -128,25 +128,25 @@ class Scheduler {
   // Schedules the specified task to be executed no earlier than after the
   // specified delay. The caller must ensure that the task object
   // remains valid until the scheduled execution occurs (or is canceled).
-  ExecutionID scheduleAfter(roo_time::Interval delay, Executable& task,
+  ExecutionID scheduleAfter(roo_time::Duration delay, Executable& task,
                             Priority priority = PRIORITY_NORMAL);
 
   // Schedules the specified task to be executed no earlier than after the
   // specified delay. The scheduler takes ownership of the task object
   // and will delete it after the scheduled execution occurs (or is canceled).
-  ExecutionID scheduleAfter(roo_time::Interval delay,
+  ExecutionID scheduleAfter(roo_time::Duration delay,
                             std::unique_ptr<Executable> task,
                             Priority priority = PRIORITY_NORMAL);
 
   // Schedules the specified callable to be executed no earlier than after the
   // specified delay.
-  ExecutionID scheduleAfter(roo_time::Interval delay,
+  ExecutionID scheduleAfter(roo_time::Duration delay,
                             std::function<void()> task,
                             Priority priority = PRIORITY_NORMAL);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   // DEPRECATED. Use scheduleAfter(delay, task, priority) instead.
-  ExecutionID scheduleAfter(Executable* task, roo_time::Interval delay,
+  ExecutionID scheduleAfter(Executable* task, roo_time::Duration delay,
                             Priority priority = PRIORITY_NORMAL) {
     return scheduleAfter(delay, *task, priority);
   }
@@ -210,7 +210,7 @@ class Scheduler {
   roo_time::Uptime getNearestExecutionTime() const;
 
   // Returns the time interval until the nearest upcoming task execution.
-  roo_time::Interval getNearestExecutionDelay() const;
+  roo_time::Duration getNearestExecutionDelay() const;
 
   // Indicates that the specified execution should be canceled.
   // The execution (and the task) may not be immediately removed from the queue,
@@ -240,7 +240,7 @@ class Scheduler {
   // begins at the call site of this method, stack overflow is more likely
   // than in the standard scenario of calling scheduleEligibleTasks() directly
   // e.g. from loop().
-  void delay(roo_time::Interval delay, Priority min_priority = PRIORITY_NORMAL);
+  void delay(roo_time::Duration delay, Priority min_priority = PRIORITY_NORMAL);
 
   // Similar to delay() above, but blocks until the specified deadline passes.
   //
@@ -391,7 +391,7 @@ class Scheduler {
 
   roo_time::Uptime getNearestExecutionTimeWithLockHeld() const;
 
-  roo_time::Interval getNearestExecutionDelayWithLockHeld() const;
+  roo_time::Duration getNearestExecutionDelayWithLockHeld() const;
 
   ExecutionID push(roo_time::Uptime when, Executable* task, bool owns_task,
                    Priority priority);
@@ -451,14 +451,14 @@ class Task : public Executable {
 // approximately every 6 seconds.
 class RepetitiveTask : public Executable {
  public:
-  RepetitiveTask(Scheduler& scheduler, roo_time::Interval delay,
+  RepetitiveTask(Scheduler& scheduler, roo_time::Duration delay,
                  std::function<void()> task,
                  Priority priority = PRIORITY_NORMAL);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   // DEPRECATED. Use RepetitiveTask(scheduler, delay, task, priority) instead.
   RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
-                 roo_time::Interval delay, Priority priority = PRIORITY_NORMAL)
+                 roo_time::Duration delay, Priority priority = PRIORITY_NORMAL)
       : RepetitiveTask(scheduler, delay, std::move(task), priority) {}
 #endif
 
@@ -476,7 +476,7 @@ class RepetitiveTask : public Executable {
 
   // Starts the task, scheduling the next execution after the specified delay.
   // Returns true on success, false if the task had already been started.
-  bool start(roo_time::Interval initial_delay);
+  bool start(roo_time::Duration initial_delay);
 
   bool stop();
 
@@ -492,7 +492,7 @@ class RepetitiveTask : public Executable {
   ExecutionID id_;
   bool active_;
   Priority priority_;
-  roo_time::Interval delay_;
+  roo_time::Duration delay_;
 };
 
 // A convenience adapter that allows to schedule periodic execution of
@@ -506,13 +506,13 @@ class RepetitiveTask : public Executable {
 // a backlog of late executions will build up.
 class PeriodicTask : public Executable {
  public:
-  PeriodicTask(Scheduler& scheduler, roo_time::Interval period,
+  PeriodicTask(Scheduler& scheduler, roo_time::Duration period,
                std::function<void()> task, Priority priority = PRIORITY_NORMAL);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   // DEPRECATED. Use PeriodicTask(scheduler, period, task, priority) instead.
   PeriodicTask(Scheduler& scheduler, std::function<void()> task,
-               roo_time::Interval period, Priority priority = PRIORITY_NORMAL)
+               roo_time::Duration period, Priority priority = PRIORITY_NORMAL)
       : PeriodicTask(scheduler, period, std::move(task), priority) {}
 #endif
 
@@ -536,7 +536,7 @@ class PeriodicTask : public Executable {
   ExecutionID id_;
   bool active_;
   Priority priority_;
-  roo_time::Interval period_;
+  roo_time::Duration period_;
   roo_time::Uptime next_;
 };
 
@@ -562,7 +562,7 @@ class SingletonTask : public Executable {
   // If the task is already scheduled (is_scheduled() returning true), the new
   // entry 'overrides' the previous instance - i.e. the task will only trigger
   // on `when`.
-  void scheduleAfter(roo_time::Interval delay,
+  void scheduleAfter(roo_time::Duration delay,
                      Priority priority = PRIORITY_NORMAL);
 
   // (Re)schedules the execution of the task to run ASAP.
