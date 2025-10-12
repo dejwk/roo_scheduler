@@ -209,7 +209,7 @@ class Scheduler {
   // Returns the scheduled time of the nearest upcoming task execution.
   roo_time::Uptime getNearestExecutionTime() const;
 
-  // Returns the time interval until the nearest upcoming task execution.
+  // Returns the duration until the nearest upcoming task execution.
   roo_time::Duration getNearestExecutionDelay() const;
 
   // Indicates that the specified execution should be canceled.
