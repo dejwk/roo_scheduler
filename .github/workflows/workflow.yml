@@ -25,7 +25,7 @@ jobs:
 
     - name: Test
       run: |
-        bazel test //...
+        bazel test //... --test_output=errors
 
     - name: Build with address sanitizer
       run: |
@@ -33,4 +33,4 @@ jobs:
 
     - name: Test with address sanitizer
       run: |
-        bazel test --config=asan //...
+        bazel test --config=asan //... --test_output=errors
