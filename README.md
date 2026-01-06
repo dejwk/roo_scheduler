@@ -1,6 +1,6 @@
 # roo_scheduler
 
-Arduino-compliant microcontroller library for scheduling delayed and/or repetitive tasks. Works on boards that support C++ standard library (e.g. Espressif ESP32 family). Specifically, it requires the following standard headers: `<memory>`, `<queue>`, and `<functional>`.
+Arduino-compliant microcontroller library for scheduling delayed and/or repetitive tasks. Works on boards that support C++ standard library (e.g. Espressif ESP32 family, and Raspberry Pi Pico SMP). Specifically, it requires the following standard headers: `<memory>`, `<queue>`, and `<functional>`.
 
 Uses `std::priority_queue` for storage, and therefore:
 
