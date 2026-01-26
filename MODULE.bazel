@@ -1,8 +1,9 @@
 module(name = "roo_scheduler", version = "2.1.6")
 
+bazel_dep(name = "rules_cc", version = "0.2.16")
 bazel_dep(name = "roo_testing", version = "1.2.1")
 
-bazel_dep(name = "googletest", version = "1.17.0")
+bazel_dep(name = "googletest", version = "1.17.0.bcr.2")
 
 bazel_dep(name = "roo_collections", version = "1.4.1")
 bazel_dep(name = "roo_threads", version = "1.2.1")

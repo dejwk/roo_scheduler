@@ -1,8 +1,10 @@
 # BUILD file for use with https://github.com/dejwk/roo_testing.
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
 cc_library(
     name = "roo_scheduler",
-    visibility = ["//visibility:public"],
     srcs = glob(
         [
             "src/**/*.cpp",
@@ -13,10 +15,11 @@ cc_library(
     includes = [
         "src",
     ],
+    visibility = ["//visibility:public"],
     deps = [
         "@roo_collections",
-        "@roo_time",
         "@roo_threads",
+        "@roo_time",
     ],
 )
 
@@ -25,12 +28,12 @@ cc_test(
     srcs = [
         "test/roo_scheduler_test.cpp",
     ],
-    includes = ["src"],
     copts = ["-Iexternal/gtest/include"],
+    includes = ["src"],
     linkstatic = 1,
     deps = [
         ":roo_scheduler",
-        "@roo_testing//:arduino_gtest_main",
         "@googletest//:gtest",
+        "@roo_testing//:arduino_gtest_main",
     ],
 )
