@@ -1,5 +1,9 @@
 #pragma once
 
+/// Umbrella header for the roo_scheduler module.
+///
+/// Provides task scheduling primitives and adapters.
+
 #include <functional>
 #include <memory>
 #include <vector>
@@ -11,28 +15,26 @@
 #include "roo_threads/mutex.h"
 #include "roo_time.h"
 
-// A typical Arduino use case may look like the following:
-//
-// void foo();
-//
-// using namespace roo_time;
-// using namespace roo_scheduler;
-//
-// Scheduler scheduler;
-// RepetitiveTask foo_task(scheduler, foo, Seconds(5));
-//
-// void setup() {
-//   // Instruct the scheduler to begin scheduling the foo_task.
-//   foo_task.start();
-// }
-//
-// void loop() {
-//   // Actually execute the foo_task when due.
-//   scheduler.executeEligibleTasks();
-//   // ... other work
-// }
-//
-// Also, see examples.
+/// A typical Arduino use case may look like the following:
+///
+/// @code
+/// void foo();
+///
+/// using namespace roo_time;
+/// using namespace roo_scheduler;
+///
+/// Scheduler scheduler;
+/// RepetitiveTask foo_task(scheduler, foo, Seconds(5));
+///
+/// void setup() {
+///   foo_task.start();
+/// }
+///
+/// void loop() {
+///   scheduler.executeEligibleTasks();
+///   // ... other work
+/// }
+/// @endcode
 
 #ifndef ROO_SCHEDULER_IGNORE_PRIORITY
 #define ROO_SCHEDULER_IGNORE_PRIORITY 0
@@ -40,36 +42,29 @@
 
 namespace roo_scheduler {
 
-// Represents a unique task execution identifier.
+/// Represents a unique task execution identifier.
 using ExecutionID = int32_t;
 
-// Deprecated; prefer ExecutionID.
+/// Deprecated alias; prefer `ExecutionID`.
 using EventID = ExecutionID;
 
-// Priority dictates the order in which eligible tasks are executed. Higher
-// priority tasks are executed first. Tasks with equal priority are executed in
-// the FIFO order.
-//
-// The task becomes eligible for execution when its scheduled time arrives. If
-// tasks complete quickly enough, and are spread in time sufficiently enough,
-// they are executed in the order of their scheduled time, regardless of
-// priority. In other words, priority only matters in case of contention, when
-// multiple tasks are eligible for execution at the same time.
-//
-// The priority is assigned when the task is scheduled, and it remains unchanged
-// for the lifetime of the scheduled execution. If a task is rescheduled, it may
-// be assigned a different priority.
-//
-// The priority has no effect on the scheduling time of the task; it only
-// affects the order in which eligible tasks are executed.
-//
-// The priority also affects the behavior of delay() and delayUntil(): those
-// methods guarantee that all tasks with priority equal or higher than the
-// specified priority will be executed before the method returns. Lower priority
-// tasks might not be executed.
-//
-// Use higher priorities for short-running tasks that are latency-sensitive,
-// and lower priorities for long-running tasks that are not latency-sensitive.
+/// Priority controls dispatch order among eligible tasks.
+///
+/// Higher-priority tasks execute first. Tasks with equal priority execute in
+/// FIFO order.
+///
+/// Priority does not affect scheduling time; it only affects dispatch order
+/// once tasks are already eligible.
+///
+/// If tasks are sufficiently spread out in time and complete quickly, they are
+/// effectively dispatched by due time regardless of priority.
+///
+/// Priority is captured when execution is scheduled and remains fixed for that
+/// scheduled execution. Re-scheduling may assign a different priority.
+///
+/// `delay()` and `delayUntil()` guarantee execution of tasks whose priority is
+/// at least the requested minimum. Lower-priority overdue tasks may remain
+/// pending.
 enum Priority {
   PRIORITY_MINIMUM = 0,
   PRIORITY_BACKGROUND = 1,
@@ -81,180 +76,169 @@ enum Priority {
   PRIORITY_MAXIMUM = 7
 };
 
-// Abstract interface for executable tasks in the scheduler queue.
+/// Abstract interface for executable tasks in the scheduler queue.
 class Executable {
  public:
   virtual ~Executable() = default;
   virtual void execute(ExecutionID id) = 0;
 };
 
-// Allows executables to be scheduled at specified delays. Usually you
-// will only have once static instance of this class in your program.
-// At any point, a number of scheduled tasks may be in the state
-// 'eligible for execution'. The scheduler does not execute those tasks
-// on its own; it is the client's responsibility to do so explicitly,
-// by calling 'executeEligibleTasks'.
+/// Schedules and dispatches delayed task executions.
+///
+/// Scheduler does not execute eligible work automatically; caller must invoke
+/// one of `executeEligibleTasks*()` methods.
 class Scheduler {
  public:
-  // Creates a scheduler.
+  /// Creates an empty scheduler.
   Scheduler();
 
-  // Schedules the specified task to be executed no earlier than at the
-  // specified absolute time. The caller must ensure that the task object
-  // remains valid until the scheduled execution occurs (or is canceled).
+  /// Schedules execution no earlier than `when`.
+  ///
+  /// Caller retains ownership and must keep `task` alive until execution or
+  /// cancellation.
   ExecutionID scheduleOn(roo_time::Uptime when, Executable& task,
                          Priority priority = PRIORITY_NORMAL);
 
-  // Schedules the specified task to be executed no earlier than at the
-  // specified absolute time. The scheduler takes ownership of the task object
-  // and will delete it after the scheduled execution occurs (or is canceled).
+  /// Schedules execution no earlier than `when`.
+  ///
+  /// Scheduler takes ownership of `task` and destroys it after execution or
+  /// cancellation.
   ExecutionID scheduleOn(roo_time::Uptime when,
                          std::unique_ptr<Executable> task,
                          Priority priority = PRIORITY_NORMAL);
 
-  // Schedules the specified callable to be executed no earlier than at the
-  // specified absolute time.
+  /// Schedules callable execution no earlier than `when`.
   ExecutionID scheduleOn(roo_time::Uptime when, std::function<void()> task,
                          Priority priority = PRIORITY_NORMAL);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
-  // DEPRECATED. Use scheduleOn(when, task, priority) instead.
+  /// @deprecated Use `scheduleOn(when, task, priority)`.
   ExecutionID scheduleOn(Executable* task, roo_time::Uptime when,
                          Priority priority = PRIORITY_NORMAL) {
     return scheduleOn(when, *task, priority);
   }
 #endif
 
-  // Schedules the specified task to be executed no earlier than after the
-  // specified delay. The caller must ensure that the task object
-  // remains valid until the scheduled execution occurs (or is canceled).
+  /// Schedules execution after `delay` elapses.
+  ///
+  /// Caller retains ownership and must keep `task` alive until execution or
+  /// cancellation.
   ExecutionID scheduleAfter(roo_time::Duration delay, Executable& task,
                             Priority priority = PRIORITY_NORMAL);
 
-  // Schedules the specified task to be executed no earlier than after the
-  // specified delay. The scheduler takes ownership of the task object
-  // and will delete it after the scheduled execution occurs (or is canceled).
+  /// Schedules execution after `delay` elapses.
+  ///
+  /// Scheduler takes ownership of `task` and destroys it after execution or
+  /// cancellation.
   ExecutionID scheduleAfter(roo_time::Duration delay,
                             std::unique_ptr<Executable> task,
                             Priority priority = PRIORITY_NORMAL);
 
-  // Schedules the specified callable to be executed no earlier than after the
-  // specified delay.
+  /// Schedules callable execution after `delay` elapses.
   ExecutionID scheduleAfter(roo_time::Duration delay,
                             std::function<void()> task,
                             Priority priority = PRIORITY_NORMAL);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
-  // DEPRECATED. Use scheduleAfter(delay, task, priority) instead.
+  /// @deprecated Use `scheduleAfter(delay, task, priority)`.
   ExecutionID scheduleAfter(Executable* task, roo_time::Duration delay,
                             Priority priority = PRIORITY_NORMAL) {
     return scheduleAfter(delay, *task, priority);
   }
 #endif
 
-  // Schedules the specified task to be executed ASAP. The caller must ensure
-  // that the task object remains valid until the scheduled execution occurs (or
-  // is canceled).
+  /// Schedules execution as soon as possible.
+  ///
+  /// Caller retains ownership and must keep `task` alive until execution or
+  /// cancellation.
   ExecutionID scheduleNow(Executable& task,
                           Priority priority = PRIORITY_NORMAL) {
     return scheduleOn(roo_time::Uptime::Now(), task, priority);
   }
 
-  // Schedules the specified task to be executed ASAP. The scheduler takes
-  // ownership of the task object and will delete it after the scheduled
-  // execution occurs (or is canceled).
+  /// Schedules execution as soon as possible.
+  ///
+  /// Scheduler takes ownership of `task` and destroys it after execution or
+  /// cancellation.
   ExecutionID scheduleNow(std::unique_ptr<Executable> task,
                           Priority priority = PRIORITY_NORMAL) {
     return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
   }
 
-  // Schedules the specified callable to be executed ASAP.
+  /// Schedules callable execution as soon as possible.
   ExecutionID scheduleNow(std::function<void()> task,
                           Priority priority = PRIORITY_NORMAL) {
     return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
   }
 
-  // Execute up to max_count of eligible task executions, whose scheduled time
-  // is not greater than the time of invocation. Returns true if the queue has
-  // been cleared; false if some eligible executions have remained in the queue.
-  // If `min_priority` is specified, ignores (does not execute) tasks with
-  // priority lower than min_priority.
+  /// Executes up to `max_count` eligible tasks due no later than now.
+  ///
+  /// Tasks below `min_priority` are ignored (not executed).
+  ///
+  /// @return true if no eligible executions remain in queue; false otherwise.
   bool executeEligibleTasksUpToNow(Priority min_priority = PRIORITY_MINIMUM,
                                    int max_count = -1) {
     return executeEligibleTasksUpTo(roo_time::Uptime::Now(), min_priority,
                                     max_count);
   }
 
-  // Execute up to max_count of eligible task executions, whose scheduled time
-  // is not greater than the specified deadline. Returns true if the queue has
-  // been cleared; false if some eligible executions have remained in the queue.
-  // If `min_priority` is specified, ignores (does not execute) tasks with
-  // priority lower than min_priority.
+  /// Executes up to `max_count` eligible tasks due no later than `deadline`.
+  ///
+  /// Tasks below `min_priority` are ignored (not executed).
+  ///
+  /// @return true if no eligible executions remain in queue; false otherwise.
   bool executeEligibleTasksUpTo(roo_time::Uptime deadline,
                                 Priority min_priority = PRIORITY_MINIMUM,
                                 int max_count = -1);
 
-  // Execute up to max_count of eligible task executions, of at least the
-  // specified priority. Returns true if the queue has been cleared; false if
-  // some eligible executions have remained in the queue.
+  /// Executes up to `max_count` eligible tasks with at least `min_priority`.
+  ///
+  /// @return true if no eligible executions remain in queue; false otherwise.
   bool executeEligibleTasks(Priority min_priority, int max_count = -1);
 
-  // Execute up to max_count of eligible task executions. Returns true if the
-  // queue has been cleared; false if some eligible executions have remained in
-  // the queue.
+  /// Executes up to `max_count` eligible tasks.
+  ///
+  /// @return true if no eligible executions remain in queue; false otherwise.
   bool executeEligibleTasks(int max_count = -1) {
     return executeEligibleTasks(PRIORITY_MINIMUM, max_count);
   }
 
-  // Returns the scheduled time of the nearest upcoming task execution.
+  /// Returns due time of the nearest upcoming execution.
   roo_time::Uptime getNearestExecutionTime() const;
 
-  // Returns the duration until the nearest upcoming task execution.
+  /// Returns delay to the nearest upcoming execution.
   roo_time::Duration getNearestExecutionDelay() const;
 
-  // Indicates that the specified execution should be canceled.
-  // The execution (and the task) may not be immediately removed from the queue,
-  // but it will not run when due.
-  //
-  // See also pruneCanceled().
+  /// Marks execution identified by `id` as canceled.
+  ///
+  /// Canceled entries may remain in queue until pruned, but will not run.
   void cancel(ExecutionID);
 
-  // Clears all canceled executions from the queue. This method has linear
-  // complexity (~3N, when N is the queue size) and should be used sparingly (if
-  // at all).
+  /// Removes canceled executions from the queue.
+  ///
+  /// This is linear-time and should be used sparingly.
   void pruneCanceled();
 
-  // Returns false if the scheduler queue contains any (non-canceled)
-  // task executions, true otherwise.
+  /// Returns true iff no pending (non-canceled) executions exist.
   bool empty() const { return queue_.empty(); }
 
-  // Blocks for at least the delay (similarly to roo_time::Delay(), or
-  // Arduino delay()), except that it keeps executing scheduled work.
-  //
-  // Tasks with scheduled execution time less or equal to now + delay, and
-  // priority equal or larger than min_priority, are guaranteed to execute
-  // before this method returns. Lower priority overdue tasks might not be
-  // executed.
-  //
-  // Caution: since the scheduled tasks are executing with call stack that
-  // begins at the call site of this method, stack overflow is more likely
-  // than in the standard scenario of calling scheduleEligibleTasks() directly
-  // e.g. from loop().
+  /// Delays for at least `delay` while executing scheduled work.
+  ///
+  /// Tasks due by return time with priority >= `min_priority` are guaranteed to
+  /// execute before return. Lower-priority overdue tasks may remain pending.
+  ///
+  /// Note: because scheduled callbacks execute on the caller's stack, this mode
+  /// can increase stack usage compared with explicit event-loop dispatch.
   void delay(roo_time::Duration delay, Priority min_priority = PRIORITY_NORMAL);
 
-  // Similar to delay() above, but blocks until the specified deadline passes.
-  //
-  // Tasks with scheduled execution time less or equal to the deadline, and
-  // priority equal or larger than min_priority, are guaranteed to execute
-  // before this method returns. Lower priority overdue tasks might not be
-  // executed.
+  /// Delays until `deadline` while executing scheduled work.
+  ///
+  /// Tasks due by `deadline` with priority >= `min_priority` are guaranteed to
+  /// execute before return. Lower-priority overdue tasks may remain pending.
   void delayUntil(roo_time::Uptime deadline,
                   Priority min_priority = PRIORITY_NORMAL);
 
-  // Enters the 'event loop' mode, executing scheduled tasks. This method
-  // never returns. It acts as an infinite delay(). It can be used to implement
-  // purely event-driven apps, where the scheduled tasks are the only thing that
-  // executes (besides interrupt handlers).
+  /// Runs scheduler event loop forever.
   void run();
 
  private:
@@ -433,8 +417,7 @@ class Scheduler {
   roo::condition_variable nonempty_;
 };
 
-// A convenience adapter that allows to schedule a one-time execution of
-// an arbitrary C++ callable.
+/// Convenience adapter for one-time execution of an arbitrary callable.
 class Task : public Executable {
  public:
   Task(std::function<void()> task) : task_(task) {}
@@ -444,11 +427,9 @@ class Task : public Executable {
   std::function<void()> task_;
 };
 
-// A convenience adapter that allows to schedule repetitive execution of
-// an arbitrary C++ callable. Subsequent executions are scheduled with
-// a constant delay in-between executiions. For example, if the task
-// needs ~1 second to execute and the delay is 5s, the task will run
-// approximately every 6 seconds.
+/// Convenience adapter for repetitive callable execution.
+///
+/// Subsequent executions are scheduled with constant delay between runs.
 class RepetitiveTask : public Executable {
  public:
   RepetitiveTask(Scheduler& scheduler, roo_time::Duration delay,
@@ -456,7 +437,7 @@ class RepetitiveTask : public Executable {
                  Priority priority = PRIORITY_NORMAL);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
-  // DEPRECATED. Use RepetitiveTask(scheduler, delay, task, priority) instead.
+  /// @deprecated Use `RepetitiveTask(scheduler, delay, task, priority)`.
   RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
                  roo_time::Duration delay, Priority priority = PRIORITY_NORMAL)
       : RepetitiveTask(scheduler, delay, std::move(task), priority) {}
@@ -466,16 +447,19 @@ class RepetitiveTask : public Executable {
 
   Priority priority() const { return priority_; }
 
-  // Starts the task, scheduling the next execution after its regular configured
-  // delay. Returns true on success, false if the task had already been started.
+  /// Starts task using configured periodic delay.
+  ///
+  /// @return false if already active.
   bool start() { return start(delay_); }
 
-  // Starts the task, scheduling the next execution immediately. Returns true on
-  // success, false if the task had already been started.
+  /// Starts task immediately.
+  ///
+  /// @return false if already active.
   bool startInstantly() { return start(roo_time::Millis(0)); }
 
-  // Starts the task, scheduling the next execution after the specified delay.
-  // Returns true on success, false if the task had already been started.
+  /// Starts task with custom initial delay.
+  ///
+  /// @return false if already active.
   bool start(roo_time::Duration initial_delay);
 
   bool stop();
@@ -495,22 +479,16 @@ class RepetitiveTask : public Executable {
   roo_time::Duration delay_;
 };
 
-// A convenience adapter that allows to schedule periodic execution of
-// an arbitrary C++ callable. Subsequent executions are scheduled at
-// predefined time, so that the average execution frequency is constant,
-// regardless of scheduling delays and task execution time.
-//
-// Use PeriodicTask in favor of RepetitiveTask when the unskewed frequency
-// of execution is important; e.g. when using it to update some kind of a clock.
-// Make sure that the execution time is shorter than the period, or else
-// a backlog of late executions will build up.
+/// Convenience adapter for periodic callable execution.
+///
+/// Uses fixed target schedule to keep average execution frequency stable.
 class PeriodicTask : public Executable {
  public:
   PeriodicTask(Scheduler& scheduler, roo_time::Duration period,
                std::function<void()> task, Priority priority = PRIORITY_NORMAL);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
-  // DEPRECATED. Use PeriodicTask(scheduler, period, task, priority) instead.
+  /// @deprecated Use `PeriodicTask(scheduler, period, task, priority)`.
   PeriodicTask(Scheduler& scheduler, std::function<void()> task,
                roo_time::Duration period, Priority priority = PRIORITY_NORMAL)
       : PeriodicTask(scheduler, period, std::move(task), priority) {}
@@ -540,36 +518,27 @@ class PeriodicTask : public Executable {
   roo_time::Uptime next_;
 };
 
-// A convenience adapter that allows to schedule 'refresh'-type tasks, that can
-// be canceled or rescheduled. If the task is scheduled for the second time
-// while its another execution is already pending, that other execution is
-// canceled.
+/// Convenience adapter for cancelable and replaceable single pending work.
 class SingletonTask : public Executable {
  public:
   SingletonTask(Scheduler& scheduler, std::function<void()> task);
 
   bool is_scheduled() const { return scheduled_; }
 
-  // (Re)schedules the execution of the task at the specific absolute time.
-  //
-  // If the task is already scheduled (is_scheduled() returning true), the new
-  // entry 'overrides' the previous instance - i.e. the task will only trigger
-  // on `when`.
+  /// Schedules or reschedules task at absolute time `when`.
+  ///
+  /// Any previously pending execution is canceled.
   void scheduleOn(roo_time::Uptime when, Priority priority = PRIORITY_NORMAL);
 
-  // (Re)schedules the execution of the task at the specified delay.
-  //
-  // If the task is already scheduled (is_scheduled() returning true), the new
-  // entry 'overrides' the previous instance - i.e. the task will only trigger
-  // on `when`.
+  /// Schedules or reschedules task after `delay`.
+  ///
+  /// Any previously pending execution is canceled.
   void scheduleAfter(roo_time::Duration delay,
                      Priority priority = PRIORITY_NORMAL);
 
-  // (Re)schedules the execution of the task to run ASAP.
-  //
-  // If the task is already scheduled (is_scheduled() returning true), the new
-  // entry 'overrides' the previous instance - i.e. the task will only trigger
-  // on `when`.
+  /// Schedules or reschedules task for immediate execution.
+  ///
+  /// Any previously pending execution is canceled.
   void scheduleNow(Priority priority = PRIORITY_NORMAL);
 
   void cancel() { scheduled_ = false; }
@@ -609,7 +578,7 @@ class IteratingTask : public Executable {
   Iterator& itr_;
   ExecutionID id_;
 
-  // Called when the iterator finishes. Allowed to delete the iterating task.
+  /// Called when iterator finishes; callback may delete the iterating task.
   std::function<void()> done_cb_;
 };
 
