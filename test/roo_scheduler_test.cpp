@@ -177,12 +177,12 @@ TEST(Scheduler, StableScheduleOrder) {
     expected.push_back(id);
   }
   Delay(Seconds(2));
-  int i = 0;
+  size_t i = 0;
   while (!scheduler.executeEligibleTasks(1)) {
     EXPECT_EQ(observed[i], expected[i]) << "at " << i;
     ++i;
   }
-  ASSERT_EQ(i, 100);
+  ASSERT_EQ(i, size_t{100});
 }
 
 TEST(Scheduler, PriorityNoEffectWhenNotBackedUp) {
@@ -341,13 +341,13 @@ TEST(Scheduler, LargeRandomTest) {
                      (a.micros == b.micros && a.id < b.id);
             });
   Delay(Seconds(2));
-  int i = 0;
+  size_t i = 0;
   while (!scheduler.executeEligibleTasks(1)) {
     EXPECT_EQ(observed[i], expected[i].id)
         << "at " << i << "; expected time: " << expected[i].micros;
     ++i;
   }
-  ASSERT_EQ(i, 10000);
+  ASSERT_EQ(i, size_t{10000});
 }
 
 TEST(Scheduler, LargeRandomCancellationTest) {
@@ -386,7 +386,7 @@ TEST(Scheduler, LargeRandomCancellationTest) {
                      (a.micros == b.micros && a.id < b.id);
             });
   Delay(Seconds(2));
-  int i = 0;
+  size_t i = 0;
   while (!scheduler.executeEligibleTasks(1)) {
     EXPECT_EQ(observed[i], expected[i].id)
         << "at " << i << "; expected time: " << expected[i].micros;
@@ -437,7 +437,7 @@ TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
                      (a.micros == b.micros && a.id < b.id);
             });
   Delay(Seconds(2));
-  int i = 0;
+  size_t i = 0;
   while (!scheduler.executeEligibleTasks(1)) {
     EXPECT_EQ(observed[i], expected[i].id)
         << "at " << i << "; expected time: " << expected[i].micros;
@@ -481,7 +481,7 @@ TEST(Scheduler, LargeRandomCancellationTestOwnedTasks) {
                      (a.micros == b.micros && a.id < b.id);
             });
   Delay(Seconds(2));
-  int i = 0;
+  size_t i = 0;
   while (!scheduler.executeEligibleTasks(1)) {
     EXPECT_EQ(observed[i], expected[i].id)
         << "at " << i << "; expected time: " << expected[i].micros;
@@ -531,7 +531,7 @@ TEST(Scheduler, LargeRandomCancellationTestOwnedTasksWithPruning) {
                      (a.micros == b.micros && a.id < b.id);
             });
   Delay(Seconds(2));
-  int i = 0;
+  size_t i = 0;
   while (!scheduler.executeEligibleTasks(1)) {
     EXPECT_EQ(observed[i], expected[i].id)
         << "at " << i << "; expected time: " << expected[i].micros;
