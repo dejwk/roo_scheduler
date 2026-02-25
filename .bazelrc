@@ -6,4 +6,5 @@ build:asan --copt -DADDRESS_SANITIZER
 build:asan --copt -O1
 build:asan --copt -g
 build:asan --copt -fno-omit-frame-pointer
+build:asan --per_file_copt=external/glog\+.*@-Wno-maybe-uninitialized
 build:asan --linkopt -fsanitize=address
