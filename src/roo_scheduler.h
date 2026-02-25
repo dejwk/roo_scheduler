@@ -224,8 +224,9 @@ class Scheduler {
 
   /// Delays for at least `delay` while executing scheduled work.
   ///
-  /// Tasks due by return time with priority >= `min_priority` are guaranteed to
-  /// execute before return. Lower-priority overdue tasks may remain pending.
+  /// Tasks due by the requested return time (now + `delay`) with priority >=
+  /// `min_priority` are guaranteed to execute before return. Lower-priority
+  /// overdue tasks may remain pending.
   ///
   /// Note: because scheduled callbacks execute on the caller's stack, this mode
   /// can increase stack usage compared with explicit event-loop dispatch.
