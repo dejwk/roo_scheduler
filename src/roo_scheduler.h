@@ -65,16 +65,33 @@ using EventID = ExecutionID;
 /// `delay()` and `delayUntil()` guarantee execution of tasks whose priority is
 /// at least the requested minimum. Lower-priority overdue tasks may remain
 /// pending.
-enum Priority {
-  PRIORITY_MINIMUM = 0,
-  PRIORITY_BACKGROUND = 1,
-  PRIORITY_REDUCED = 2,
-  PRIORITY_NORMAL = 3,
-  PRIORITY_ELEVATED = 4,
-  PRIORITY_SENSITIVE = 5,
-  PRIORITY_CRITICAL = 6,
-  PRIORITY_MAXIMUM = 7
+enum class Priority {
+  kMinimum = 0,
+  kBackground = 1,
+  kReduced = 2,
+  kNormal = 3,
+  kElevated = 4,
+  kSensitive = 5,
+  kCritical = 6,
+  kMaximum = 7,
 };
+
+/// @deprecated Use `Priority::kMinimum`.
+constexpr Priority PRIORITY_MINIMUM = Priority::kMinimum;
+/// @deprecated Use `Priority::kBackground`.
+constexpr Priority PRIORITY_BACKGROUND = Priority::kBackground;
+/// @deprecated Use `Priority::kReduced`.
+constexpr Priority PRIORITY_REDUCED = Priority::kReduced;
+/// @deprecated Use `Priority::kNormal`.
+constexpr Priority PRIORITY_NORMAL = Priority::kNormal;
+/// @deprecated Use `Priority::kElevated`.
+constexpr Priority PRIORITY_ELEVATED = Priority::kElevated;
+/// @deprecated Use `Priority::kSensitive`.
+constexpr Priority PRIORITY_SENSITIVE = Priority::kSensitive;
+/// @deprecated Use `Priority::kCritical`.
+constexpr Priority PRIORITY_CRITICAL = Priority::kCritical;
+/// @deprecated Use `Priority::kMaximum`.
+constexpr Priority PRIORITY_MAXIMUM = Priority::kMaximum;
 
 /// Abstract interface for executable tasks in the scheduler queue.
 class Executable {
@@ -97,7 +114,7 @@ class Scheduler {
   /// Caller retains ownership and must keep `task` alive until execution or
   /// cancellation.
   ExecutionID scheduleOn(roo_time::Uptime when, Executable& task,
-                         Priority priority = PRIORITY_NORMAL);
+                         Priority priority = Priority::kNormal);
 
   /// Schedules execution no earlier than `when`.
   ///
@@ -105,16 +122,16 @@ class Scheduler {
   /// cancellation.
   ExecutionID scheduleOn(roo_time::Uptime when,
                          std::unique_ptr<Executable> task,
-                         Priority priority = PRIORITY_NORMAL);
+                         Priority priority = Priority::kNormal);
 
   /// Schedules callable execution no earlier than `when`.
   ExecutionID scheduleOn(roo_time::Uptime when, std::function<void()> task,
-                         Priority priority = PRIORITY_NORMAL);
+                         Priority priority = Priority::kNormal);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `scheduleOn(when, task, priority)`.
   ExecutionID scheduleOn(Executable* task, roo_time::Uptime when,
-                         Priority priority = PRIORITY_NORMAL) {
+                         Priority priority = Priority::kNormal) {
     return scheduleOn(when, *task, priority);
   }
 #endif
@@ -124,7 +141,7 @@ class Scheduler {
   /// Caller retains ownership and must keep `task` alive until execution or
   /// cancellation.
   ExecutionID scheduleAfter(roo_time::Duration delay, Executable& task,
-                            Priority priority = PRIORITY_NORMAL);
+                            Priority priority = Priority::kNormal);
 
   /// Schedules execution after `delay` elapses.
   ///
@@ -132,17 +149,17 @@ class Scheduler {
   /// cancellation.
   ExecutionID scheduleAfter(roo_time::Duration delay,
                             std::unique_ptr<Executable> task,
-                            Priority priority = PRIORITY_NORMAL);
+                            Priority priority = Priority::kNormal);
 
   /// Schedules callable execution after `delay` elapses.
   ExecutionID scheduleAfter(roo_time::Duration delay,
                             std::function<void()> task,
-                            Priority priority = PRIORITY_NORMAL);
+                            Priority priority = Priority::kNormal);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `scheduleAfter(delay, task, priority)`.
   ExecutionID scheduleAfter(Executable* task, roo_time::Duration delay,
-                            Priority priority = PRIORITY_NORMAL) {
+                            Priority priority = Priority::kNormal) {
     return scheduleAfter(delay, *task, priority);
   }
 #endif
@@ -152,7 +169,7 @@ class Scheduler {
   /// Caller retains ownership and must keep `task` alive until execution or
   /// cancellation.
   ExecutionID scheduleNow(Executable& task,
-                          Priority priority = PRIORITY_NORMAL) {
+                          Priority priority = Priority::kNormal) {
     return scheduleOn(roo_time::Uptime::Now(), task, priority);
   }
 
@@ -161,13 +178,13 @@ class Scheduler {
   /// Scheduler takes ownership of `task` and destroys it after execution or
   /// cancellation.
   ExecutionID scheduleNow(std::unique_ptr<Executable> task,
-                          Priority priority = PRIORITY_NORMAL) {
+                          Priority priority = Priority::kNormal) {
     return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
   }
 
   /// Schedules callable execution as soon as possible.
   ExecutionID scheduleNow(std::function<void()> task,
-                          Priority priority = PRIORITY_NORMAL) {
+                          Priority priority = Priority::kNormal) {
     return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
   }
 
@@ -176,7 +193,7 @@ class Scheduler {
   /// Tasks below `min_priority` are ignored (not executed).
   ///
   /// @return true if no eligible executions remain in queue; false otherwise.
-  bool executeEligibleTasksUpToNow(Priority min_priority = PRIORITY_MINIMUM,
+  bool executeEligibleTasksUpToNow(Priority min_priority = Priority::kMinimum,
                                    int max_count = -1) {
     return executeEligibleTasksUpTo(roo_time::Uptime::Now(), min_priority,
                                     max_count);
@@ -188,7 +205,7 @@ class Scheduler {
   ///
   /// @return true if no eligible executions remain in queue; false otherwise.
   bool executeEligibleTasksUpTo(roo_time::Uptime deadline,
-                                Priority min_priority = PRIORITY_MINIMUM,
+                                Priority min_priority = Priority::kMinimum,
                                 int max_count = -1);
 
   /// Executes up to `max_count` eligible tasks with at least `min_priority`.
@@ -200,7 +217,7 @@ class Scheduler {
   ///
   /// @return true if no eligible executions remain in queue; false otherwise.
   bool executeEligibleTasks(int max_count = -1) {
-    return executeEligibleTasks(PRIORITY_MINIMUM, max_count);
+    return executeEligibleTasks(Priority::kMinimum, max_count);
   }
 
   /// Returns due time of the nearest upcoming execution.
@@ -230,14 +247,15 @@ class Scheduler {
   ///
   /// Note: because scheduled callbacks execute on the caller's stack, this mode
   /// can increase stack usage compared with explicit event-loop dispatch.
-  void delay(roo_time::Duration delay, Priority min_priority = PRIORITY_NORMAL);
+  void delay(roo_time::Duration delay,
+             Priority min_priority = Priority::kNormal);
 
   /// Delays until `deadline` while executing scheduled work.
   ///
   /// Tasks due by `deadline` with priority >= `min_priority` are guaranteed to
   /// execute before return. Lower-priority overdue tasks may remain pending.
   void delayUntil(roo_time::Uptime deadline,
-                  Priority min_priority = PRIORITY_NORMAL);
+                  Priority min_priority = Priority::kNormal);
 
   /// Runs scheduler event loop forever.
   void run();
@@ -250,7 +268,7 @@ class Scheduler {
         : id_(0),
           task_(nullptr),
           when_(roo_time::Uptime::Max()),
-          priority_(PRIORITY_NORMAL),
+          priority_(Priority::kNormal),
           owns_task_(false) {}
 
     Entry(ExecutionID id, Executable* task, bool owns_task,
@@ -337,7 +355,7 @@ class Scheduler {
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
       return priority_;
 #else
-      return PRIORITY_NORMAL;
+      return Priority::kNormal;
 #endif
     }
 
@@ -435,12 +453,13 @@ class RepetitiveTask : public Executable {
  public:
   RepetitiveTask(Scheduler& scheduler, roo_time::Duration delay,
                  std::function<void()> task,
-                 Priority priority = PRIORITY_NORMAL);
+                 Priority priority = Priority::kNormal);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `RepetitiveTask(scheduler, delay, task, priority)`.
   RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
-                 roo_time::Duration delay, Priority priority = PRIORITY_NORMAL)
+                 roo_time::Duration delay,
+                 Priority priority = Priority::kNormal)
       : RepetitiveTask(scheduler, delay, std::move(task), priority) {}
 #endif
 
@@ -486,12 +505,13 @@ class RepetitiveTask : public Executable {
 class PeriodicTask : public Executable {
  public:
   PeriodicTask(Scheduler& scheduler, roo_time::Duration period,
-               std::function<void()> task, Priority priority = PRIORITY_NORMAL);
+               std::function<void()> task,
+               Priority priority = Priority::kNormal);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `PeriodicTask(scheduler, period, task, priority)`.
   PeriodicTask(Scheduler& scheduler, std::function<void()> task,
-               roo_time::Duration period, Priority priority = PRIORITY_NORMAL)
+               roo_time::Duration period, Priority priority = Priority::kNormal)
       : PeriodicTask(scheduler, period, std::move(task), priority) {}
 #endif
 
@@ -529,18 +549,18 @@ class SingletonTask : public Executable {
   /// Schedules or reschedules task at absolute time `when`.
   ///
   /// Any previously pending execution is canceled.
-  void scheduleOn(roo_time::Uptime when, Priority priority = PRIORITY_NORMAL);
+  void scheduleOn(roo_time::Uptime when, Priority priority = Priority::kNormal);
 
   /// Schedules or reschedules task after `delay`.
   ///
   /// Any previously pending execution is canceled.
   void scheduleAfter(roo_time::Duration delay,
-                     Priority priority = PRIORITY_NORMAL);
+                     Priority priority = Priority::kNormal);
 
   /// Schedules or reschedules task for immediate execution.
   ///
   /// Any previously pending execution is canceled.
-  void scheduleNow(Priority priority = PRIORITY_NORMAL);
+  void scheduleNow(Priority priority = Priority::kNormal);
 
   void cancel() { scheduled_ = false; }
 
