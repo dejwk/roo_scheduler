@@ -8,3 +8,14 @@ Uses `std::priority_queue` for storage, and therefore:
 * Scheduling a task, as well as looking up the nearest scheduled task, is O(log N), where N is the queue length, so it remains fast even in those rare cases when the queue gets longer.
 
 The tasks can be defined as function pointers, but also as inline lambdas, or generally as arbitrary callables, so it is convenient and idiomatic to make them stateful.
+
+## Host emulation
+
+Host builds use the roo_testing 2.0 Arduino ESP32 profile. With Bazelisk 1.21
+or newer, a plain command defaults to that profile and prints a notice:
+
+    bazel test ...
+    bazel test ... --config=roo_testing_arduino_esp32
+
+The files under .roo_testing/bazelrc/esp32 are vendored from roo_testing;
+follow their canonical-source headers when refreshing them.
