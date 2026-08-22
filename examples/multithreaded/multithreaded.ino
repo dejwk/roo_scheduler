@@ -3,6 +3,8 @@
 
 #include <Arduino.h>
 
+#include <atomic>
+
 #include "roo_scheduler.h"
 #include "roo_threads.h"
 #include "roo_time.h"
