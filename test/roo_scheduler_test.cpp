@@ -11,8 +11,13 @@ namespace roo_scheduler {
 
 using namespace roo_time;
 
+struct TestTask : public Executable {
+  TestTask(std::vector<ExecutionID>& observed) : observed(observed) {}
+  void execute(ExecutionID id) { observed.push_back(id); }
+  std::vector<ExecutionID>& observed;
+};
+
 TEST(Scheduler, Now) {
-  system_time_set_auto_sync(false);
   int counter = 0;
   Scheduler scheduler;
   Task task([&counter] { ++counter; });
@@ -22,7 +27,6 @@ TEST(Scheduler, Now) {
 }
 
 TEST(Scheduler, Now3x) {
-  system_time_set_auto_sync(false);
   int counter = 0;
   Scheduler scheduler;
   Task task([&counter] { ++counter; });
@@ -34,7 +38,6 @@ TEST(Scheduler, Now3x) {
 }
 
 TEST(Scheduler, Repetitive) {
-  system_time_set_auto_sync(false);
   int counter = 0;
   Scheduler scheduler;
   RepetitiveTask task(scheduler, Millis(1200), [&counter] {
@@ -66,7 +69,6 @@ TEST(Scheduler, Repetitive) {
 }
 
 TEST(Scheduler, Periodic) {
-  system_time_set_auto_sync(false);
   int counter = 0;
   Scheduler scheduler;
   PeriodicTask task(scheduler, Millis(1200), [&counter] {
@@ -90,7 +92,6 @@ TEST(Scheduler, Periodic) {
 }
 
 TEST(Scheduler, RepetitiveImmediateDestruction) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   int counter = 0;
   {
@@ -106,7 +107,6 @@ TEST(Scheduler, RepetitiveImmediateDestruction) {
 }
 
 TEST(Scheduler, PeriodicImmediateDestruction) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   int counter = 0;
   {
@@ -122,7 +122,6 @@ TEST(Scheduler, PeriodicImmediateDestruction) {
 }
 
 TEST(Scheduler, SingletonImmediateDestruction) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   int counter = 0;
   {
@@ -138,7 +137,6 @@ TEST(Scheduler, SingletonImmediateDestruction) {
 }
 
 TEST(Scheduler, SingletonNonImmediateDestruction) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   int counter = 0;
   SingletonTask task1(scheduler, [&counter] {
@@ -158,14 +156,7 @@ TEST(Scheduler, SingletonNonImmediateDestruction) {
   EXPECT_EQ(1, counter);
 }
 
-struct TestTask : public Executable {
-  TestTask(std::vector<ExecutionID>& observed) : observed(observed) {}
-  void execute(ExecutionID id) { observed.push_back(id); }
-  std::vector<ExecutionID>& observed;
-};
-
 TEST(Scheduler, StableScheduleOrder) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
@@ -186,7 +177,6 @@ TEST(Scheduler, StableScheduleOrder) {
 }
 
 TEST(Scheduler, PriorityNoEffectWhenNotBackedUp) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
@@ -228,7 +218,6 @@ TEST(Scheduler, PriorityNoEffectWhenNotBackedUp) {
 }
 
 TEST(Scheduler, PriorityAppliedWhenBackedUp) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
@@ -258,67 +247,7 @@ TEST(Scheduler, PriorityAppliedWhenBackedUp) {
   EXPECT_EQ(observed, expected);
 }
 
-TEST(Scheduler, DelayWithNormalPriority) {
-  system_time_set_auto_sync(true);
-  Scheduler scheduler;
-  std::vector<ExecutionID> observed;
-  std::vector<ExecutionID> expected;
-  TestTask test(observed);
-
-  Uptime now = Uptime::Now();
-  Uptime trigger = now + Micros(100);
-  ExecutionID id1 = scheduler.scheduleOn(trigger, test, PRIORITY_BACKGROUND);
-  ExecutionID id2 = scheduler.scheduleOn(trigger, test, PRIORITY_REDUCED);
-  ExecutionID id3 = scheduler.scheduleOn(trigger, test, PRIORITY_NORMAL);
-  ExecutionID id4 = scheduler.scheduleOn(trigger, test, PRIORITY_ELEVATED);
-  ExecutionID id5 = scheduler.scheduleOn(trigger, test, PRIORITY_SENSITIVE);
-  ExecutionID id6 = scheduler.scheduleOn(trigger, test, PRIORITY_CRITICAL);
-
-  scheduler.delayUntil(now + Micros(50));
-  EXPECT_EQ(observed, expected);
-  expected.push_back(id6);
-  expected.push_back(id5);
-  expected.push_back(id4);
-  expected.push_back(id3);
-  scheduler.delayUntil(now + Micros(100));
-  EXPECT_EQ(observed, expected);
-  expected.push_back(id2);
-  expected.push_back(id1);
-  scheduler.delayUntil(now + Micros(2000));
-  EXPECT_EQ(observed, expected);
-}
-
-TEST(Scheduler, DelayWithHeightenedPriority) {
-  system_time_set_auto_sync(true);
-  Scheduler scheduler;
-  std::vector<ExecutionID> observed;
-  std::vector<ExecutionID> expected;
-  TestTask test(observed);
-
-  Uptime now = Uptime::Now();
-  Uptime trigger = now + Micros(100);
-  ExecutionID id1 = scheduler.scheduleOn(trigger, test, PRIORITY_BACKGROUND);
-  ExecutionID id2 = scheduler.scheduleOn(trigger, test, PRIORITY_REDUCED);
-  ExecutionID id3 = scheduler.scheduleOn(trigger, test, PRIORITY_NORMAL);
-  ExecutionID id4 = scheduler.scheduleOn(trigger, test, PRIORITY_ELEVATED);
-  ExecutionID id5 = scheduler.scheduleOn(trigger, test, PRIORITY_SENSITIVE);
-  ExecutionID id6 = scheduler.scheduleOn(trigger, test, PRIORITY_CRITICAL);
-  scheduler.delayUntil(now + Micros(50), PRIORITY_SENSITIVE);
-  EXPECT_EQ(observed, expected);
-  expected.push_back(id6);
-  expected.push_back(id5);
-  scheduler.delayUntil(now + Micros(100), PRIORITY_SENSITIVE);
-  EXPECT_EQ(observed, expected);
-  expected.push_back(id4);
-  expected.push_back(id3);
-  expected.push_back(id2);
-  expected.push_back(id1);
-  scheduler.delayUntil(now + Micros(2000));
-  EXPECT_EQ(observed, expected);
-}
-
 TEST(Scheduler, LargeRandomTest) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
 
@@ -351,7 +280,6 @@ TEST(Scheduler, LargeRandomTest) {
 }
 
 TEST(Scheduler, LargeRandomCancellationTest) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
 
@@ -396,7 +324,6 @@ TEST(Scheduler, LargeRandomCancellationTest) {
 }
 
 TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
 
@@ -447,7 +374,6 @@ TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
 }
 
 TEST(Scheduler, LargeRandomCancellationTestOwnedTasks) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
 
@@ -491,7 +417,6 @@ TEST(Scheduler, LargeRandomCancellationTestOwnedTasks) {
 }
 
 TEST(Scheduler, LargeRandomCancellationTestOwnedTasksWithPruning) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
 
@@ -577,7 +502,6 @@ TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutable) {
 }
 
 TEST(Scheduler, ScheduleOneOffTaskWithCallableAfterDelay) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::atomic<int> counter{0};
 
@@ -595,7 +519,6 @@ TEST(Scheduler, ScheduleOneOffTaskWithCallableAfterDelay) {
 }
 
 TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutableAfterDelay) {
-  system_time_set_auto_sync(false);
   Scheduler scheduler;
   std::atomic<int> counter{0};
 

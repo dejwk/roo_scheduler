@@ -35,5 +35,21 @@ cc_test(
         ":roo_scheduler",
         "@googletest//:gtest",
         "@roo_testing//:arduino_gtest_main",
+        "@roo_testing//roo_testing/system:manual_time_mode",
+    ],
+)
+
+cc_test(
+    name = "roo_scheduler_auto_time_test",
+    srcs = [
+        "test/roo_scheduler_auto_time_test.cpp",
+    ],
+    copts = ["-Iexternal/gtest/include"],
+    includes = ["src"],
+    linkstatic = 1,
+    deps = [
+        ":roo_scheduler",
+        "@googletest//:gtest",
+        "@roo_testing//:arduino_gtest_main",
     ],
 )
