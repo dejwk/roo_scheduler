@@ -3,9 +3,9 @@
 #include <atomic>
 #include <chrono>
 
+#include "gtest/gtest.h"
 #include "roo_testing/system/timer.h"
 #include "roo_time.h"
-#include "gtest/gtest.h"
 
 namespace roo_scheduler {
 
@@ -484,11 +484,11 @@ TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutable) {
 
   // Define a custom Executable.
   class MyTask : public Executable {
-  public:
+   public:
     MyTask(std::atomic<int> &counter) : counter_(counter) {}
     void execute(ExecutionID) override { counter_++; }
 
-  private:
+   private:
     std::atomic<int> &counter_;
   };
 
@@ -523,11 +523,11 @@ TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutableAfterDelay) {
   std::atomic<int> counter{0};
 
   class MyTask : public Executable {
-  public:
+   public:
     MyTask(std::atomic<int> &counter) : counter_(counter) {}
     void execute(ExecutionID) override { counter_++; }
 
-  private:
+   private:
     std::atomic<int> &counter_;
   };
 
@@ -543,7 +543,7 @@ TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutableAfterDelay) {
   EXPECT_EQ(counter.load(), 1);
 }
 
-} // namespace roo_scheduler
+}  // namespace roo_scheduler
 
 namespace roo_scheduler {
 TEST(SchedulerRegression, ReadyCancellationSurvivesQueueChanges) {
@@ -552,14 +552,11 @@ TEST(SchedulerRegression, ReadyCancellationSurvivesQueueChanges) {
     int calls = 0;
     auto id = s.scheduleNow([&] { ++calls; });
     ExecutionID later = -1;
-    if (mode)
-      later = s.scheduleAfter(Seconds(10), [] {});
+    if (mode) later = s.scheduleAfter(Seconds(10), [] {});
     s.executeEligibleTasks(Priority::kMaximum);
     s.cancel(id);
-    if (mode == 1)
-      s.pruneCanceled();
-    if (mode == 2)
-      s.cancel(later);
+    if (mode == 1) s.pruneCanceled();
+    if (mode == 2) s.cancel(later);
     s.executeEligibleTasks();
     EXPECT_EQ(calls, 0);
   }
@@ -572,19 +569,34 @@ TEST(SchedulerRegression, ReadyTasksCountAsPending) {
   EXPECT_FALSE(s.empty());
 }
 
-TEST(SchedulerRegression, EarlierDeadlineFindsEligibleTaskBehindRoot) {
+TEST(SchedulerRegression, EarlierCutoffKeepsAdmittedTasksEligible) {
   Scheduler s;
-  int early = 0, late = 0;
-  auto deadline = Uptime::Now();
-  s.scheduleOn(deadline, [&] { ++early; }, Priority::kBackground);
+  std::vector<int> observed;
+  auto cutoff = Uptime::Now();
+  s.scheduleOn(cutoff, [&] { observed.push_back(1); }, Priority::kBackground);
   Delay(Millis(10));
-  s.scheduleNow([&] { ++late; }, Priority::kElevated);
+  s.scheduleNow([&] { observed.push_back(2); }, Priority::kElevated);
   s.executeEligibleTasks(Priority::kMaximum);
-  s.executeEligibleTasksUpTo(deadline);
-  EXPECT_EQ(early, 1);
-  EXPECT_EQ(late, 0);
+  // This third task has not been admitted and is beyond the older cutoff.
+  s.scheduleNow([&] { observed.push_back(3); }, Priority::kMaximum);
+  s.executeEligibleTasksUpTo(cutoff);
+  EXPECT_EQ(observed, (std::vector<int>{2, 1}));
   s.executeEligibleTasks();
-  EXPECT_EQ(late, 1);
+  EXPECT_EQ(observed, (std::vector<int>{2, 1, 3}));
+}
+
+TEST(SchedulerRegression, NestedDispatchCanAdvanceAdmissionCutoff) {
+  Scheduler s;
+  std::vector<int> observed;
+  auto cutoff = Uptime::Now();
+  s.scheduleOn(cutoff, [&] {
+    observed.push_back(1);
+    Delay(Millis(10));
+    s.executeEligibleTasks(Priority::kMaximum);
+  });
+  s.scheduleOn(cutoff + Millis(10), [&] { observed.push_back(2); });
+  s.executeEligibleTasksUpTo(cutoff);
+  EXPECT_EQ(observed, (std::vector<int>{1, 2}));
 }
 
 TEST(SchedulerRegression, SingletonCancelRescheduleDestruction) {
@@ -625,19 +637,16 @@ TEST(SchedulerRegression, OwnedDestructorCanReenterScheduler) {
   for (int mode = 0; mode < 3; ++mode) {
     Scheduler s;
     int count = 0;
-    if (mode == 1)
-      s.scheduleNow([] {});
+    if (mode == 1) s.scheduleNow([] {});
     auto id =
         s.scheduleNow(std::unique_ptr<Executable>(new Reentrant(s, count)));
-    if (mode == 2)
-      s.executeEligibleTasks(Priority::kMaximum);
+    if (mode == 2) s.executeEligibleTasks(Priority::kMaximum);
     s.cancel(id);
-    if (mode == 1)
-      s.pruneCanceled();
+    if (mode == 1) s.pruneCanceled();
     s.executeEligibleTasks();
     // Ready cancellation retires its callable after the dispatch lock is gone.
     s.executeEligibleTasks();
     EXPECT_EQ(count, 1);
   }
 }
-} // namespace roo_scheduler
+}  // namespace roo_scheduler

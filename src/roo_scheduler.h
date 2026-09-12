@@ -95,7 +95,7 @@ constexpr Priority PRIORITY_MAXIMUM = Priority::kMaximum;
 
 /// Abstract interface for executable tasks in the scheduler queue.
 class Executable {
-public:
+ public:
   virtual ~Executable() = default;
   virtual void execute(ExecutionID id) = 0;
 };
@@ -105,7 +105,7 @@ public:
 /// Scheduler does not execute eligible work automatically; caller must invoke
 /// one of `executeEligibleTasks*()` methods.
 class Scheduler {
-public:
+ public:
   /// Creates an empty scheduler.
   Scheduler();
 
@@ -188,7 +188,8 @@ public:
     return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
   }
 
-  /// Executes up to `max_count` eligible tasks due no later than now.
+  /// Admits queued tasks due no later than now, then dispatches eligible work.
+  /// See executeEligibleTasksUpTo() for admission semantics.
   ///
   /// Tasks below `min_priority` are ignored (not executed).
   ///
@@ -199,7 +200,15 @@ public:
                                     max_count);
   }
 
-  /// Executes up to `max_count` eligible tasks due no later than `deadline`.
+  /// Admits queued tasks due no later than min(deadline, now), then executes
+  /// up to `max_count` eligible tasks in priority order.
+  ///
+  /// The deadline is an admission cutoff, not a limit on already-ready work.
+  /// Previously admitted tasks remain eligible even if their due times exceed
+  /// this cutoff. This includes work admitted by nested dispatch. Callers may
+  /// use decreasing cutoffs; this does not withdraw previously admitted work.
+  /// With ROO_SCHEDULER_IGNORE_PRIORITY there is no separate ready queue, so
+  /// each execution is selected directly using the current cutoff.
   ///
   /// Tasks below `min_priority` are ignored (not executed).
   ///
@@ -260,29 +269,37 @@ public:
   /// Runs scheduler event loop forever.
   void run();
 
-private:
+ private:
   class Entry {
-  public:
+   public:
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
     Entry()
-        : id_(0), task_(nullptr), when_(roo_time::Uptime::Max()),
-          priority_(Priority::kNormal), owns_task_(false) {}
+        : id_(0),
+          task_(nullptr),
+          when_(roo_time::Uptime::Max()),
+          priority_(Priority::kNormal),
+          owns_task_(false) {}
 
     Entry(ExecutionID id, Executable *task, bool owns_task,
           roo_time::Uptime when, Priority priority)
-        : id_(id), task_(task), when_(when), priority_(priority),
+        : id_(id),
+          task_(task),
+          when_(when),
+          priority_(priority),
           owns_task_(owns_task) {}
 
     Entry(Entry &&other)
-        : id_(other.id_), task_(other.task_), when_(other.when_),
-          priority_(other.priority_), owns_task_(other.owns_task_) {
+        : id_(other.id_),
+          task_(other.task_),
+          when_(other.when_),
+          priority_(other.priority_),
+          owns_task_(other.owns_task_) {
       other.task_ = nullptr;
       other.owns_task_ = false;
     }
 
     Entry &operator=(Entry &&other) {
-      if (this == &other)
-        return *this;
+      if (this == &other) return *this;
       if (owns_task_) {
         delete task_;
       }
@@ -298,7 +315,9 @@ private:
 
 #else
     Entry()
-        : id_(0), task_(nullptr), when_(roo_time::Uptime::Max()),
+        : id_(0),
+          task_(nullptr),
+          when_(roo_time::Uptime::Max()),
           owns_task_(false) {}
 
     Entry(ExecutionID id, Executable *task, bool owns_task,
@@ -306,14 +325,15 @@ private:
         : id_(id), task_(task), when_(when), owns_task_(owns_task) {}
 
     Entry(Entry &&other)
-        : id_(other.id_), task_(other.task_), when_(other.when_),
+        : id_(other.id_),
+          task_(other.task_),
+          when_(other.when_),
           owns_task_(other.owns_task_) {
       other.owns_task_ = false;
     }
 
     Entry &operator=(Entry &&other) {
-      if (this == &other)
-        return *this;
+      if (this == &other) return *this;
       if (owns_task_) {
         delete task_;
       }
@@ -350,7 +370,7 @@ private:
 
     bool owns_task() const { return owns_task_; }
 
-  private:
+   private:
     friend struct TimeComparator;
 
     ExecutionID id_;
@@ -427,11 +447,11 @@ private:
 
 /// Convenience adapter for one-time execution of an arbitrary callable.
 class Task : public Executable {
-public:
+ public:
   Task(std::function<void()> task) : task_(task) {}
   void execute(ExecutionID id) override { task_(); }
 
-private:
+ private:
   std::function<void()> task_;
 };
 
@@ -439,7 +459,7 @@ private:
 ///
 /// Subsequent executions are scheduled with constant delay between runs.
 class RepetitiveTask : public Executable {
-public:
+ public:
   RepetitiveTask(Scheduler &scheduler, roo_time::Duration delay,
                  std::function<void()> task,
                  Priority priority = Priority::kNormal);
@@ -479,7 +499,7 @@ public:
 
   ~RepetitiveTask();
 
-private:
+ private:
   Scheduler &scheduler_;
   std::function<void()> task_;
   ExecutionID id_;
@@ -492,7 +512,7 @@ private:
 ///
 /// Uses fixed target schedule to keep average execution frequency stable.
 class PeriodicTask : public Executable {
-public:
+ public:
   PeriodicTask(Scheduler &scheduler, roo_time::Duration period,
                std::function<void()> task,
                Priority priority = Priority::kNormal);
@@ -518,7 +538,7 @@ public:
 
   ~PeriodicTask();
 
-private:
+ private:
   Scheduler &scheduler_;
   std::function<void()> task_;
   ExecutionID id_;
@@ -530,7 +550,7 @@ private:
 
 /// Convenience adapter for cancelable and replaceable single pending work.
 class SingletonTask : public Executable {
-public:
+ public:
   SingletonTask(Scheduler &scheduler, std::function<void()> task);
 
   bool is_scheduled() const { return scheduled_; }
@@ -557,7 +577,7 @@ public:
 
   ~SingletonTask();
 
-private:
+ private:
   Scheduler &scheduler_;
   std::function<void()> task_;
   ExecutionID id_;
@@ -565,9 +585,9 @@ private:
 };
 
 class IteratingTask : public Executable {
-public:
+ public:
   class Iterator {
-  public:
+   public:
     virtual ~Iterator() = default;
     virtual int64_t next() = 0;
   };
@@ -583,7 +603,7 @@ public:
 
   ~IteratingTask();
 
-private:
+ private:
   Scheduler &scheduler_;
   Iterator &itr_;
   ExecutionID id_;
@@ -592,4 +612,4 @@ private:
   std::function<void()> done_cb_;
 };
 
-} // namespace roo_scheduler
+}  // namespace roo_scheduler
