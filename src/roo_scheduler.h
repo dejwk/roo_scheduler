@@ -95,7 +95,7 @@ constexpr Priority PRIORITY_MAXIMUM = Priority::kMaximum;
 
 /// Abstract interface for executable tasks in the scheduler queue.
 class Executable {
- public:
+public:
   virtual ~Executable() = default;
   virtual void execute(ExecutionID id) = 0;
 };
@@ -105,7 +105,7 @@ class Executable {
 /// Scheduler does not execute eligible work automatically; caller must invoke
 /// one of `executeEligibleTasks*()` methods.
 class Scheduler {
- public:
+public:
   /// Creates an empty scheduler.
   Scheduler();
 
@@ -113,7 +113,7 @@ class Scheduler {
   ///
   /// Caller retains ownership and must keep `task` alive until execution or
   /// cancellation.
-  ExecutionID scheduleOn(roo_time::Uptime when, Executable& task,
+  ExecutionID scheduleOn(roo_time::Uptime when, Executable &task,
                          Priority priority = Priority::kNormal);
 
   /// Schedules execution no earlier than `when`.
@@ -130,7 +130,7 @@ class Scheduler {
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `scheduleOn(when, task, priority)`.
-  ExecutionID scheduleOn(Executable* task, roo_time::Uptime when,
+  ExecutionID scheduleOn(Executable *task, roo_time::Uptime when,
                          Priority priority = Priority::kNormal) {
     return scheduleOn(when, *task, priority);
   }
@@ -140,7 +140,7 @@ class Scheduler {
   ///
   /// Caller retains ownership and must keep `task` alive until execution or
   /// cancellation.
-  ExecutionID scheduleAfter(roo_time::Duration delay, Executable& task,
+  ExecutionID scheduleAfter(roo_time::Duration delay, Executable &task,
                             Priority priority = Priority::kNormal);
 
   /// Schedules execution after `delay` elapses.
@@ -158,7 +158,7 @@ class Scheduler {
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `scheduleAfter(delay, task, priority)`.
-  ExecutionID scheduleAfter(Executable* task, roo_time::Duration delay,
+  ExecutionID scheduleAfter(Executable *task, roo_time::Duration delay,
                             Priority priority = Priority::kNormal) {
     return scheduleAfter(delay, *task, priority);
   }
@@ -168,7 +168,7 @@ class Scheduler {
   ///
   /// Caller retains ownership and must keep `task` alive until execution or
   /// cancellation.
-  ExecutionID scheduleNow(Executable& task,
+  ExecutionID scheduleNow(Executable &task,
                           Priority priority = Priority::kNormal) {
     return scheduleOn(roo_time::Uptime::Now(), task, priority);
   }
@@ -237,7 +237,7 @@ class Scheduler {
   void pruneCanceled();
 
   /// Returns true iff no pending (non-canceled) executions exist.
-  bool empty() const { return queue_.empty(); }
+  bool empty() const;
 
   /// Delays for at least `delay` while executing scheduled work.
   ///
@@ -260,37 +260,29 @@ class Scheduler {
   /// Runs scheduler event loop forever.
   void run();
 
- private:
+private:
   class Entry {
-   public:
+  public:
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
     Entry()
-        : id_(0),
-          task_(nullptr),
-          when_(roo_time::Uptime::Max()),
-          priority_(Priority::kNormal),
-          owns_task_(false) {}
+        : id_(0), task_(nullptr), when_(roo_time::Uptime::Max()),
+          priority_(Priority::kNormal), owns_task_(false) {}
 
-    Entry(ExecutionID id, Executable* task, bool owns_task,
+    Entry(ExecutionID id, Executable *task, bool owns_task,
           roo_time::Uptime when, Priority priority)
-        : id_(id),
-          task_(task),
-          when_(when),
-          priority_(priority),
+        : id_(id), task_(task), when_(when), priority_(priority),
           owns_task_(owns_task) {}
 
-    Entry(Entry&& other)
-        : id_(other.id_),
-          task_(other.task_),
-          when_(other.when_),
-          priority_(other.priority_),
-          owns_task_(other.owns_task_) {
+    Entry(Entry &&other)
+        : id_(other.id_), task_(other.task_), when_(other.when_),
+          priority_(other.priority_), owns_task_(other.owns_task_) {
       other.task_ = nullptr;
       other.owns_task_ = false;
     }
 
-    Entry& operator=(Entry&& other) {
-      if (this == &other) return *this;
+    Entry &operator=(Entry &&other) {
+      if (this == &other)
+        return *this;
       if (owns_task_) {
         delete task_;
       }
@@ -306,25 +298,22 @@ class Scheduler {
 
 #else
     Entry()
-        : id_(0),
-          task_(nullptr),
-          when_(roo_time::Uptime::Max()),
+        : id_(0), task_(nullptr), when_(roo_time::Uptime::Max()),
           owns_task_(false) {}
 
-    Entry(ExecutionID id, Executable* task, bool owns_task,
+    Entry(ExecutionID id, Executable *task, bool owns_task,
           roo_time::Uptime when, Priority priority)
         : id_(id), task_(task), when_(when), owns_task_(owns_task) {}
 
-    Entry(Entry&& other)
-        : id_(other.id_),
-          task_(other.task_),
-          when_(other.when_),
+    Entry(Entry &&other)
+        : id_(other.id_), task_(other.task_), when_(other.when_),
           owns_task_(other.owns_task_) {
       other.owns_task_ = false;
     }
 
-    Entry& operator=(Entry&& other) {
-      if (this == &other) return *this;
+    Entry &operator=(Entry &&other) {
+      if (this == &other)
+        return *this;
       if (owns_task_) {
         delete task_;
       }
@@ -338,8 +327,8 @@ class Scheduler {
     }
 #endif
 
-    Entry(const Entry& other) = delete;
-    Entry& operator=(const Entry& other) = delete;
+    Entry(const Entry &other) = delete;
+    Entry &operator=(const Entry &other) = delete;
 
     ~Entry() {
       if (owns_task_) {
@@ -348,7 +337,7 @@ class Scheduler {
     }
 
     roo_time::Uptime when() const { return when_; }
-    Executable* task() const { return task_; }
+    Executable *task() const { return task_; }
     ExecutionID id() const { return id_; }
 
     Priority priority() const {
@@ -361,11 +350,11 @@ class Scheduler {
 
     bool owns_task() const { return owns_task_; }
 
-   private:
+  private:
     friend struct TimeComparator;
 
     ExecutionID id_;
-    Executable* task_;
+    Executable *task_;
     roo_time::Uptime when_;
 
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
@@ -376,7 +365,7 @@ class Scheduler {
 
   // Orders scheduled tasks in the queue by their nearest execution time.
   struct TimeComparator {
-    bool operator()(const Entry& a, const Entry& b) {
+    bool operator()(const Entry &a, const Entry &b) {
       return a.when() > b.when() ||
              (a.when() == b.when() && a.id() - b.id() > 0);
     }
@@ -384,7 +373,7 @@ class Scheduler {
 
   // Used for tasks that are already due, ordering them by priority.
   struct PriorityComparator {
-    bool operator()(const Entry& a, const Entry& b) {
+    bool operator()(const Entry &a, const Entry &b) {
       return a.priority() < b.priority() ||
              (a.priority() == b.priority() &&
               (a.when() > b.when() ||
@@ -396,9 +385,9 @@ class Scheduler {
 
   roo_time::Duration getNearestExecutionDelayWithLockHeld() const;
 
-  ExecutionID push(roo_time::Uptime when, Executable* task, bool owns_task,
+  ExecutionID push(roo_time::Uptime when, Executable *task, bool owns_task,
                    Priority priority);
-  void pop();
+  void pop(std::vector<Entry> &retired);
 
   // Returns true if has been executed; false if there was no eligible
   // execution.
@@ -438,11 +427,11 @@ class Scheduler {
 
 /// Convenience adapter for one-time execution of an arbitrary callable.
 class Task : public Executable {
- public:
+public:
   Task(std::function<void()> task) : task_(task) {}
   void execute(ExecutionID id) override { task_(); }
 
- private:
+private:
   std::function<void()> task_;
 };
 
@@ -450,14 +439,14 @@ class Task : public Executable {
 ///
 /// Subsequent executions are scheduled with constant delay between runs.
 class RepetitiveTask : public Executable {
- public:
-  RepetitiveTask(Scheduler& scheduler, roo_time::Duration delay,
+public:
+  RepetitiveTask(Scheduler &scheduler, roo_time::Duration delay,
                  std::function<void()> task,
                  Priority priority = Priority::kNormal);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `RepetitiveTask(scheduler, delay, task, priority)`.
-  RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
+  RepetitiveTask(Scheduler &scheduler, std::function<void()> task,
                  roo_time::Duration delay,
                  Priority priority = Priority::kNormal)
       : RepetitiveTask(scheduler, delay, std::move(task), priority) {}
@@ -490,8 +479,8 @@ class RepetitiveTask : public Executable {
 
   ~RepetitiveTask();
 
- private:
-  Scheduler& scheduler_;
+private:
+  Scheduler &scheduler_;
   std::function<void()> task_;
   ExecutionID id_;
   bool active_;
@@ -503,14 +492,14 @@ class RepetitiveTask : public Executable {
 ///
 /// Uses fixed target schedule to keep average execution frequency stable.
 class PeriodicTask : public Executable {
- public:
-  PeriodicTask(Scheduler& scheduler, roo_time::Duration period,
+public:
+  PeriodicTask(Scheduler &scheduler, roo_time::Duration period,
                std::function<void()> task,
                Priority priority = Priority::kNormal);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `PeriodicTask(scheduler, period, task, priority)`.
-  PeriodicTask(Scheduler& scheduler, std::function<void()> task,
+  PeriodicTask(Scheduler &scheduler, std::function<void()> task,
                roo_time::Duration period, Priority priority = Priority::kNormal)
       : PeriodicTask(scheduler, period, std::move(task), priority) {}
 #endif
@@ -529,8 +518,8 @@ class PeriodicTask : public Executable {
 
   ~PeriodicTask();
 
- private:
-  Scheduler& scheduler_;
+private:
+  Scheduler &scheduler_;
   std::function<void()> task_;
   ExecutionID id_;
   bool active_;
@@ -541,8 +530,8 @@ class PeriodicTask : public Executable {
 
 /// Convenience adapter for cancelable and replaceable single pending work.
 class SingletonTask : public Executable {
- public:
-  SingletonTask(Scheduler& scheduler, std::function<void()> task);
+public:
+  SingletonTask(Scheduler &scheduler, std::function<void()> task);
 
   bool is_scheduled() const { return scheduled_; }
 
@@ -568,22 +557,22 @@ class SingletonTask : public Executable {
 
   ~SingletonTask();
 
- private:
-  Scheduler& scheduler_;
+private:
+  Scheduler &scheduler_;
   std::function<void()> task_;
   ExecutionID id_;
   bool scheduled_;
 };
 
 class IteratingTask : public Executable {
- public:
+public:
   class Iterator {
-   public:
+  public:
     virtual ~Iterator() = default;
     virtual int64_t next() = 0;
   };
 
-  IteratingTask(Scheduler& scheduler, Iterator& iterator,
+  IteratingTask(Scheduler &scheduler, Iterator &iterator,
                 std::function<void()> done_cb = std::function<void()>());
 
   bool start(roo_time::Uptime when = roo_time::Uptime::Now());
@@ -594,13 +583,13 @@ class IteratingTask : public Executable {
 
   ~IteratingTask();
 
- private:
-  Scheduler& scheduler_;
-  Iterator& itr_;
+private:
+  Scheduler &scheduler_;
+  Iterator &itr_;
   ExecutionID id_;
 
   /// Called when iterator finishes; callback may delete the iterating task.
   std::function<void()> done_cb_;
 };
 
-}  // namespace roo_scheduler
+} // namespace roo_scheduler

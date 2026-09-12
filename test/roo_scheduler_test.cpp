@@ -3,18 +3,18 @@
 #include <atomic>
 #include <chrono>
 
-#include "gtest/gtest.h"
 #include "roo_testing/system/timer.h"
 #include "roo_time.h"
+#include "gtest/gtest.h"
 
 namespace roo_scheduler {
 
 using namespace roo_time;
 
 struct TestTask : public Executable {
-  TestTask(std::vector<ExecutionID>& observed) : observed(observed) {}
+  TestTask(std::vector<ExecutionID> &observed) : observed(observed) {}
   void execute(ExecutionID id) { observed.push_back(id); }
-  std::vector<ExecutionID>& observed;
+  std::vector<ExecutionID> &observed;
 };
 
 TEST(Scheduler, Now) {
@@ -265,7 +265,7 @@ TEST(Scheduler, LargeRandomTest) {
     expected.push_back(Experiment{.micros = micros, .id = id});
   }
   std::sort(expected.begin(), expected.end(),
-            [](const Experiment& a, const Experiment& b) {
+            [](const Experiment &a, const Experiment &b) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
@@ -305,11 +305,11 @@ TEST(Scheduler, LargeRandomCancellationTest) {
   }
   expected.erase(
       std::remove_if(expected.begin(), expected.end(),
-                     [](const Experiment& e) { return e.cancelled; }),
+                     [](const Experiment &e) { return e.cancelled; }),
       expected.end());
 
   std::sort(expected.begin(), expected.end(),
-            [](const Experiment& a, const Experiment& b) {
+            [](const Experiment &a, const Experiment &b) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
@@ -355,11 +355,11 @@ TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
   }
   expected.erase(
       std::remove_if(expected.begin(), expected.end(),
-                     [](const Experiment& e) { return e.cancelled; }),
+                     [](const Experiment &e) { return e.cancelled; }),
       expected.end());
 
   std::sort(expected.begin(), expected.end(),
-            [](const Experiment& a, const Experiment& b) {
+            [](const Experiment &a, const Experiment &b) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
@@ -398,11 +398,11 @@ TEST(Scheduler, LargeRandomCancellationTestOwnedTasks) {
   }
   expected.erase(
       std::remove_if(expected.begin(), expected.end(),
-                     [](const Experiment& e) { return e.cancelled; }),
+                     [](const Experiment &e) { return e.cancelled; }),
       expected.end());
 
   std::sort(expected.begin(), expected.end(),
-            [](const Experiment& a, const Experiment& b) {
+            [](const Experiment &a, const Experiment &b) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
@@ -447,11 +447,11 @@ TEST(Scheduler, LargeRandomCancellationTestOwnedTasksWithPruning) {
   }
   expected.erase(
       std::remove_if(expected.begin(), expected.end(),
-                     [](const Experiment& e) { return e.cancelled; }),
+                     [](const Experiment &e) { return e.cancelled; }),
       expected.end());
 
   std::sort(expected.begin(), expected.end(),
-            [](const Experiment& a, const Experiment& b) {
+            [](const Experiment &a, const Experiment &b) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
@@ -484,12 +484,12 @@ TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutable) {
 
   // Define a custom Executable.
   class MyTask : public Executable {
-   public:
-    MyTask(std::atomic<int>& counter) : counter_(counter) {}
+  public:
+    MyTask(std::atomic<int> &counter) : counter_(counter) {}
     void execute(ExecutionID) override { counter_++; }
 
-   private:
-    std::atomic<int>& counter_;
+  private:
+    std::atomic<int> &counter_;
   };
 
   // Schedule a one-off task using unique_ptr<Executable>.
@@ -523,12 +523,12 @@ TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutableAfterDelay) {
   std::atomic<int> counter{0};
 
   class MyTask : public Executable {
-   public:
-    MyTask(std::atomic<int>& counter) : counter_(counter) {}
+  public:
+    MyTask(std::atomic<int> &counter) : counter_(counter) {}
     void execute(ExecutionID) override { counter_++; }
 
-   private:
-    std::atomic<int>& counter_;
+  private:
+    std::atomic<int> &counter_;
   };
 
   scheduler.scheduleAfter(Millis(10),
@@ -543,4 +543,101 @@ TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutableAfterDelay) {
   EXPECT_EQ(counter.load(), 1);
 }
 
-}  // namespace roo_scheduler
+} // namespace roo_scheduler
+
+namespace roo_scheduler {
+TEST(SchedulerRegression, ReadyCancellationSurvivesQueueChanges) {
+  for (int mode = 0; mode < 3; ++mode) {
+    Scheduler s;
+    int calls = 0;
+    auto id = s.scheduleNow([&] { ++calls; });
+    ExecutionID later = -1;
+    if (mode)
+      later = s.scheduleAfter(Seconds(10), [] {});
+    s.executeEligibleTasks(Priority::kMaximum);
+    s.cancel(id);
+    if (mode == 1)
+      s.pruneCanceled();
+    if (mode == 2)
+      s.cancel(later);
+    s.executeEligibleTasks();
+    EXPECT_EQ(calls, 0);
+  }
+}
+
+TEST(SchedulerRegression, ReadyTasksCountAsPending) {
+  Scheduler s;
+  s.scheduleNow([] {});
+  s.executeEligibleTasks(Priority::kMaximum);
+  EXPECT_FALSE(s.empty());
+}
+
+TEST(SchedulerRegression, EarlierDeadlineFindsEligibleTaskBehindRoot) {
+  Scheduler s;
+  int early = 0, late = 0;
+  auto deadline = Uptime::Now();
+  s.scheduleOn(deadline, [&] { ++early; }, Priority::kBackground);
+  Delay(Millis(10));
+  s.scheduleNow([&] { ++late; }, Priority::kElevated);
+  s.executeEligibleTasks(Priority::kMaximum);
+  s.executeEligibleTasksUpTo(deadline);
+  EXPECT_EQ(early, 1);
+  EXPECT_EQ(late, 0);
+  s.executeEligibleTasks();
+  EXPECT_EQ(late, 1);
+}
+
+TEST(SchedulerRegression, SingletonCancelRescheduleDestruction) {
+  Scheduler s;
+  {
+    SingletonTask task(s, [] {});
+    task.scheduleAfter(Seconds(1));
+    task.cancel();
+    task.scheduleAfter(Seconds(2));
+  }
+  s.pruneCanceled();
+  EXPECT_TRUE(s.empty());
+  Delay(Seconds(3));
+  s.executeEligibleTasks();
+}
+
+TEST(SchedulerRegression, IteratorWithoutCompletionCallback) {
+  struct Finished : IteratingTask::Iterator {
+    int64_t next() override { return -1; }
+  } iterator;
+  Scheduler s;
+  IteratingTask task(s, iterator);
+  task.start();
+  s.executeEligibleTasks();
+  EXPECT_FALSE(task.is_active());
+}
+
+TEST(SchedulerRegression, OwnedDestructorCanReenterScheduler) {
+  struct Reentrant : Executable {
+    Reentrant(Scheduler &s, int &count) : s(s), count(count) {}
+    ~Reentrant() override {
+      s.scheduleNow([&count = count] { ++count; });
+    }
+    void execute(ExecutionID) override {}
+    Scheduler &s;
+    int &count;
+  };
+  for (int mode = 0; mode < 3; ++mode) {
+    Scheduler s;
+    int count = 0;
+    if (mode == 1)
+      s.scheduleNow([] {});
+    auto id =
+        s.scheduleNow(std::unique_ptr<Executable>(new Reentrant(s, count)));
+    if (mode == 2)
+      s.executeEligibleTasks(Priority::kMaximum);
+    s.cancel(id);
+    if (mode == 1)
+      s.pruneCanceled();
+    s.executeEligibleTasks();
+    // Ready cancellation retires its callable after the dispatch lock is gone.
+    s.executeEligibleTasks();
+    EXPECT_EQ(count, 1);
+  }
+}
+} // namespace roo_scheduler
