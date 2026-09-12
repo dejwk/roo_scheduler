@@ -98,6 +98,11 @@ class Executable {
  public:
   virtual ~Executable() = default;
   virtual void execute(ExecutionID id) = 0;
+
+ private:
+  friend class Scheduler;
+  // Used only after the scheduler removes an owned task from its queues.
+  Executable *retired_next_ = nullptr;
 };
 
 /// Schedules and dispatches delayed task executions.
@@ -370,6 +375,14 @@ class Scheduler {
 
     bool owns_task() const { return owns_task_; }
 
+    Executable *releaseOwnedTask() {
+      if (!owns_task_) return nullptr;
+      Executable *task = task_;
+      task_ = nullptr;
+      owns_task_ = false;
+      return task;
+    }
+
    private:
     friend struct TimeComparator;
 
@@ -401,13 +414,24 @@ class Scheduler {
     }
   };
 
+  // Intrusive retirement avoids allocating during cancellation or dispatch.
+  // Declare before lock guards so user destructors run after unlocking.
+  class RetiredTasks {
+   public:
+    ~RetiredTasks();
+    void add(Entry &&entry);
+
+   private:
+    Executable *head_ = nullptr;
+  };
+
   roo_time::Uptime getNearestExecutionTimeWithLockHeld() const;
 
   roo_time::Duration getNearestExecutionDelayWithLockHeld() const;
 
   ExecutionID push(roo_time::Uptime when, Executable *task, bool owns_task,
                    Priority priority);
-  void pop(std::vector<Entry> &retired);
+  void pop(RetiredTasks &retired);
 
   // Returns true if has been executed; false if there was no eligible
   // execution.

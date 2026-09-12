@@ -63,14 +63,29 @@ ExecutionID Scheduler::push(roo_time::Uptime when, Executable *task,
   return id;
 }
 
+Scheduler::RetiredTasks::~RetiredTasks() {
+  while (head_ != nullptr) {
+    Executable *task = head_;
+    head_ = task->retired_next_;
+    delete task;
+  }
+}
+
+void Scheduler::RetiredTasks::add(Entry &&entry) {
+  Executable *task = entry.releaseOwnedTask();
+  if (task == nullptr) return;
+  task->retired_next_ = head_;
+  head_ = task;
+}
+
 // The queue must be non-empty.
-void Scheduler::pop(std::vector<Entry> &retired) {
+void Scheduler::pop(RetiredTasks &retired) {
   std::pop_heap(queue_.begin(), queue_.end(), TimeComparator());
-  retired.push_back(std::move(queue_.back()));
+  retired.add(std::move(queue_.back()));
   queue_.pop_back();
   while (!queue_.empty() && canceled_.erase(queue_.front().id())) {
     std::pop_heap(queue_.begin(), queue_.end(), TimeComparator());
-    retired.push_back(std::move(queue_.back()));
+    retired.add(std::move(queue_.back()));
     queue_.pop_back();
   }
   // Cancellation records may still refer to ready_ entries.
@@ -146,7 +161,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
                                         Priority min_priority) {
   roo_time::Uptime now = roo_time::Uptime::Now();
   if (deadline > now) deadline = now;
-  std::vector<Entry> retired;
+  RetiredTasks retired;
   Entry to_execute;
   {
     roo::lock_guard<roo::mutex> lock(mutex_);
@@ -161,7 +176,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
     while (!ready_.empty()) {
       if (canceled_.erase(ready_.front().id())) {
         std::pop_heap(ready_.begin(), ready_.end(), PriorityComparator());
-        retired.push_back(std::move(ready_.back()));
+        retired.add(std::move(ready_.back()));
         ready_.pop_back();
         continue;
       }
@@ -184,7 +199,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
                                         Priority min_priority) {
   roo_time::Uptime now = roo_time::Uptime::Now();
   if (deadline > now) deadline = now;
-  std::vector<Entry> retired;
+  RetiredTasks retired;
   Entry to_execute;
   {
     roo::lock_guard<roo::mutex> lock(mutex_);
@@ -217,7 +232,7 @@ bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
 #endif
 
 void Scheduler::cancel(ExecutionID id) {
-  std::vector<Entry> retired;
+  RetiredTasks retired;
   roo::lock_guard<roo::mutex> lock(mutex_);
   if (queue_.empty()
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
@@ -233,7 +248,7 @@ void Scheduler::cancel(ExecutionID id) {
 }
 
 void Scheduler::pruneCanceled() {
-  std::vector<Entry> retired;
+  RetiredTasks retired;
   roo::lock_guard<roo::mutex> lock(mutex_);
   if (canceled_.empty()) return;
   auto prune = [&](std::vector<Entry> &entries, auto comparator) {
@@ -241,7 +256,7 @@ void Scheduler::pruneCanceled() {
     size_t i = 0;
     while (i < entries.size()) {
       if (canceled_.erase(entries[i].id())) {
-        retired.push_back(std::move(entries[i]));
+        retired.add(std::move(entries[i]));
         entries[i] = std::move(entries.back());
         entries.pop_back();
         modified = true;
