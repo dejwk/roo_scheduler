@@ -109,22 +109,29 @@ class Executable {
 ///
 /// Scheduler does not execute eligible work automatically; caller must invoke
 /// one of `executeEligibleTasks*()` methods.
+///
+/// Scheduling, cancellation and queries may be called from any thread. Dispatch
+/// must be serialized on one thread; nested dispatch on that thread is allowed.
+/// Callbacks and canceled task destructors run without the scheduler mutex.
+/// Stop dispatch and all producers before destroying the scheduler. The
+/// scheduler must outlive every adapter that refers to it.
 class Scheduler {
  public:
   /// Creates an empty scheduler.
   Scheduler();
+  ~Scheduler();
 
   /// Schedules execution no earlier than `when`.
   ///
   /// Caller retains ownership and must keep `task` alive until execution or
-  /// cancellation.
+  /// cancellation followed by quiescence (see `cancelAndWait()`).
   ExecutionID scheduleOn(roo_time::Uptime when, Executable &task,
                          Priority priority = Priority::kNormal);
 
   /// Schedules execution no earlier than `when`.
   ///
   /// Scheduler takes ownership of `task` and destroys it after execution or
-  /// cancellation.
+  /// cancellation followed by quiescence (see `cancelAndWait()`).
   ExecutionID scheduleOn(roo_time::Uptime when,
                          std::unique_ptr<Executable> task,
                          Priority priority = Priority::kNormal);
@@ -144,14 +151,14 @@ class Scheduler {
   /// Schedules execution after `delay` elapses.
   ///
   /// Caller retains ownership and must keep `task` alive until execution or
-  /// cancellation.
+  /// cancellation followed by quiescence (see `cancelAndWait()`).
   ExecutionID scheduleAfter(roo_time::Duration delay, Executable &task,
                             Priority priority = Priority::kNormal);
 
   /// Schedules execution after `delay` elapses.
   ///
   /// Scheduler takes ownership of `task` and destroys it after execution or
-  /// cancellation.
+  /// cancellation followed by quiescence (see `cancelAndWait()`).
   ExecutionID scheduleAfter(roo_time::Duration delay,
                             std::unique_ptr<Executable> task,
                             Priority priority = Priority::kNormal);
@@ -172,7 +179,7 @@ class Scheduler {
   /// Schedules execution as soon as possible.
   ///
   /// Caller retains ownership and must keep `task` alive until execution or
-  /// cancellation.
+  /// cancellation followed by quiescence (see `cancelAndWait()`).
   ExecutionID scheduleNow(Executable &task,
                           Priority priority = Priority::kNormal) {
     return scheduleOn(roo_time::Uptime::Now(), task, priority);
@@ -181,7 +188,7 @@ class Scheduler {
   /// Schedules execution as soon as possible.
   ///
   /// Scheduler takes ownership of `task` and destroys it after execution or
-  /// cancellation.
+  /// cancellation followed by quiescence (see `cancelAndWait()`).
   ExecutionID scheduleNow(std::unique_ptr<Executable> task,
                           Priority priority = Priority::kNormal) {
     return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
@@ -242,8 +249,18 @@ class Scheduler {
 
   /// Marks execution identified by `id` as canceled.
   ///
-  /// Canceled entries may remain in queue until pruned, but will not run.
+  /// Canceled entries may remain in queue until pruned, but will not run unless
+  /// dispatch already claimed them. This operation does not wait for callbacks
+  /// and does not by itself permit destroying a borrowed task on another
+  /// thread.
   void cancel(ExecutionID);
+
+  /// Cancels all pending executions of a borrowed task and waits for claimed
+  /// executions to return. Prevent concurrent rescheduling before calling this.
+  /// Do not hold a lock that the callback needs. Returns false instead of
+  /// waiting if this thread is currently dispatching the task (including an
+  /// outer callback during nested dispatch). In that case it is not quiescent.
+  bool cancelAndWait(Executable &task);
 
   /// Removes canceled executions from the queue.
   ///
@@ -275,6 +292,18 @@ class Scheduler {
   void run();
 
  private:
+  struct InFlight {
+    explicit InFlight(Scheduler &scheduler) : scheduler(scheduler) {}
+    ~InFlight();
+    Scheduler &scheduler;
+    Executable *task = nullptr;
+#ifndef ROO_THREADS_SINGLETHREADED
+    roo::thread::id thread;
+#endif
+    InFlight *previous = nullptr;
+  };
+  InFlight *in_flight_ = nullptr;
+
   class Entry {
    public:
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
@@ -425,6 +454,12 @@ class Scheduler {
     Executable *head_ = nullptr;
   };
 
+  friend class SingletonTask;
+  // Retired owned tasks must outlive both scheduler and adapter lock guards.
+  ExecutionID replace(ExecutionID previous, roo_time::Uptime when,
+                      Executable &task, Priority priority,
+                      RetiredTasks &retired);
+
   roo_time::Uptime getNearestExecutionTimeWithLockHeld() const;
 
   roo_time::Duration getNearestExecutionDelayWithLockHeld() const;
@@ -458,15 +493,15 @@ class Scheduler {
   ExecutionID next_execution_id_;
 
   // Deferred cancellation set, containing IDs of scheduled executions that have
-  // been canceled. They will not run when due, and the tasks they refer to can
-  // be safely destroyed.
+  // been canceled. These records cover pending entries, not claimed callbacks.
   //
   // Calling pruneCanceled() removes all canceled executions from the queue, and
   // clears this set.
   roo_collections::FlatSmallHashSet<ExecutionID> canceled_;
 
   mutable roo::mutex mutex_;
-  roo::condition_variable nonempty_;
+  // Queue changes and execution completion share the same mutex/predicate loop.
+  roo::condition_variable changed_;
 };
 
 /// Convenience adapter for one-time execution of an arbitrary callable.
@@ -482,6 +517,9 @@ class Task : public Executable {
 /// Convenience adapter for repetitive callable execution.
 ///
 /// Subsequent executions are scheduled with constant delay between runs.
+/// Control methods are thread-safe; stop() does not wait for a running
+/// callback. Callbacks must not destroy this adapter. Use shutdown() before
+/// destroying state referenced by a callback, and keep the scheduler alive.
 class RepetitiveTask : public Executable {
  public:
   RepetitiveTask(Scheduler &scheduler, roo_time::Duration delay,
@@ -496,38 +534,48 @@ class RepetitiveTask : public Executable {
       : RepetitiveTask(scheduler, delay, std::move(task), priority) {}
 #endif
 
-  bool is_active() const { return active_; }
+  bool is_active() const;
 
-  Priority priority() const { return priority_; }
+  Priority priority() const;
 
   /// Starts task using configured periodic delay.
   ///
-  /// @return false if already active.
+  /// @return false if already active or permanently shut down.
   bool start() { return start(delay_); }
 
   /// Starts task immediately.
   ///
-  /// @return false if already active.
+  /// @return false if already active or permanently shut down.
   bool startInstantly() { return start(roo_time::Millis(0)); }
 
   /// Starts task with custom initial delay.
   ///
-  /// @return false if already active.
+  /// @return false if already active or permanently shut down.
   bool start(roo_time::Duration initial_delay);
 
   bool stop();
 
   void execute(ExecutionID id) override;
 
-  void setPriority(Priority priority) { priority_ = priority; }
+  void setPriority(Priority priority);
+
+  /// Permanently disables scheduling, cancels pending work and waits for a
+  /// claimed callback. Returns false on the dispatching callback's own thread;
+  /// no waiting occurs there. Never hold a callback-needed lock while waiting.
+  /// Concurrent callers must keep the object alive until their calls return.
+  bool shutdown();
+
+  /// True once shutdown begins; does not imply a claimed callback has finished.
+  bool is_shutdown() const;
 
   ~RepetitiveTask();
 
  private:
   Scheduler &scheduler_;
   std::function<void()> task_;
+  mutable roo::mutex mutex_;
+  // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
   ExecutionID id_;
-  bool active_;
   Priority priority_;
   roo_time::Duration delay_;
 };
@@ -535,6 +583,7 @@ class RepetitiveTask : public Executable {
 /// Convenience adapter for periodic callable execution.
 ///
 /// Uses fixed target schedule to keep average execution frequency stable.
+/// Shares RepetitiveTask's threading and lifetime contract.
 class PeriodicTask : public Executable {
  public:
   PeriodicTask(Scheduler &scheduler, roo_time::Duration period,
@@ -548,9 +597,9 @@ class PeriodicTask : public Executable {
       : PeriodicTask(scheduler, period, std::move(task), priority) {}
 #endif
 
-  bool is_active() const { return active_; }
+  bool is_active() const;
 
-  Priority priority() const { return priority_; }
+  Priority priority() const;
 
   bool start(roo_time::Uptime when = roo_time::Uptime::Now());
 
@@ -558,56 +607,83 @@ class PeriodicTask : public Executable {
 
   void execute(ExecutionID id) override;
 
-  void setPriority(Priority priority) { priority_ = priority; }
+  void setPriority(Priority priority);
+
+  /// Permanently disables scheduling, cancels pending work and waits for a
+  /// claimed callback. Returns false on the dispatching callback's own thread;
+  /// no waiting occurs there. Never hold a callback-needed lock while waiting.
+  /// Concurrent callers must keep the object alive until their calls return.
+  bool shutdown();
+
+  /// True once shutdown begins; does not imply a claimed callback has finished.
+  bool is_shutdown() const;
 
   ~PeriodicTask();
 
  private:
   Scheduler &scheduler_;
   std::function<void()> task_;
+  mutable roo::mutex mutex_;
+  // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
   ExecutionID id_;
-  bool active_;
   Priority priority_;
   roo_time::Duration period_;
   roo_time::Uptime next_;
 };
 
 /// Convenience adapter for cancelable and replaceable single pending work.
+/// Control methods are thread-safe. cancel() does not wait for a running
+/// callback. is_scheduled() describes pending work, not a running callback.
+/// A callback may reschedule or destroy this adapter; captured state must stay
+/// alive until the callback returns. Use shutdown() before owner teardown.
 class SingletonTask : public Executable {
  public:
   SingletonTask(Scheduler &scheduler, std::function<void()> task);
 
-  bool is_scheduled() const { return scheduled_; }
+  bool is_scheduled() const;
 
   /// Schedules or reschedules task at absolute time `when`.
   ///
-  /// Any previously pending execution is canceled.
+  /// Any previously pending execution is canceled. Ignored after shutdown().
   void scheduleOn(roo_time::Uptime when, Priority priority = Priority::kNormal);
 
   /// Schedules or reschedules task after `delay`.
   ///
-  /// Any previously pending execution is canceled.
+  /// Any previously pending execution is canceled. Ignored after shutdown().
   void scheduleAfter(roo_time::Duration delay,
                      Priority priority = Priority::kNormal);
 
   /// Schedules or reschedules task for immediate execution.
   ///
-  /// Any previously pending execution is canceled.
+  /// Any previously pending execution is canceled. Ignored after shutdown().
   void scheduleNow(Priority priority = Priority::kNormal);
 
-  void cancel() { scheduled_ = false; }
+  void cancel();
 
   void execute(ExecutionID id) override;
+
+  /// Permanently disables scheduling, cancels pending work and waits for a
+  /// claimed callback. Returns false on the dispatching callback's own thread;
+  /// no waiting occurs there. Never hold a callback-needed lock while waiting.
+  /// Concurrent callers must keep the object alive until their calls return.
+  bool shutdown();
+
+  /// True once shutdown begins; does not imply a claimed callback has finished.
+  bool is_shutdown() const;
 
   ~SingletonTask();
 
  private:
   Scheduler &scheduler_;
-  std::function<void()> task_;
+  std::shared_ptr<std::function<void()>> task_;
+  mutable roo::mutex mutex_;
+  // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
   ExecutionID id_;
-  bool scheduled_;
 };
 
+/// Thread-safe scheduling of an iterator. Only the dispatch thread calls
+/// next(). The iterator must outlive shutdown(); it must not destroy this task
+/// in next(). The completion callback may destroy this adapter.
 class IteratingTask : public Executable {
  public:
   class Iterator {
@@ -623,17 +699,28 @@ class IteratingTask : public Executable {
 
   void execute(ExecutionID id) override;
 
-  bool is_active() const { return id_ >= 0; }
+  bool is_active() const;
+
+  /// Permanently disables scheduling, cancels pending work and waits for a
+  /// claimed callback. Returns false on the dispatching callback's own thread;
+  /// no waiting occurs there. Never hold a callback-needed lock while waiting.
+  /// Concurrent callers must keep the object alive until their calls return.
+  bool shutdown();
+
+  /// True once shutdown begins; does not imply a claimed callback has finished.
+  bool is_shutdown() const;
 
   ~IteratingTask();
 
  private:
   Scheduler &scheduler_;
   Iterator &itr_;
+  mutable roo::mutex mutex_;
+  // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
   ExecutionID id_;
 
   /// Called when iterator finishes; callback may delete the iterating task.
-  std::function<void()> done_cb_;
+  std::shared_ptr<std::function<void()>> done_cb_;
 };
 
 }  // namespace roo_scheduler

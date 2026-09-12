@@ -1,5 +1,4 @@
-// This example demonstrates how to schedule one-off tasks (i.e. unique, usually
-// stateful, executing only once).
+// This example demonstrates cross-thread scheduling and adapter control.
 
 #include <Arduino.h>
 
@@ -46,6 +45,8 @@ void setup() {
   scheduler.scheduleAfter(Seconds(2),
                           []() { Serial.printf("At 2 seconds\n"); });
 
+  // Adapter state is synchronized with the dispatch thread. User data in the
+  // callback still needs its own synchronization (counter is atomic above).
   incrementer.start();
 }
 
@@ -54,7 +55,9 @@ void loop() {
   // worry about calling the scheduler to execute pending tasks. They will be
   // asynchronously executed in a separate thread.
   if (incrementer.is_active() && counter >= 10) {
-    incrementer.stop();
+    incrementer.stop();  // Non-waiting: an already-claimed callback may finish.
+    // If this task or its captured state were about to be destroyed, call
+    // incrementer.shutdown() here first, without holding callback-needed locks.
     Serial.printf("Incrementer stopped at counter=%d\n", counter.load());
   }
 }

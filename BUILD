@@ -53,3 +53,49 @@ cc_test(
         "@roo_testing//:arduino_gtest_main",
     ],
 )
+
+cc_test(
+    name = "roo_scheduler_concurrency_test",
+    srcs = ["test/roo_scheduler_concurrency_test.cpp"],
+    size = "small",
+    linkstatic = 1,
+    deps = [
+        ":roo_scheduler",
+        "@googletest//:gtest",
+        "@roo_testing//:arduino_gtest_main",
+    ],
+)
+
+cc_test(
+    name = "roo_scheduler_allocation_test",
+    srcs = ["test/roo_scheduler_allocation_test.cpp"],
+    size = "small",
+    linkstatic = 1,
+    deps = [
+        ":roo_scheduler",
+        "@googletest//:gtest",
+        "@roo_testing//:arduino_gtest_main",
+        "@roo_testing//roo_testing/system:manual_time_mode",
+    ],
+)
+
+cc_library(
+    name = "roo_scheduler_without_priority",
+    srcs = ["src/roo_scheduler.cpp", "src/roo_scheduler.h"],
+    includes = ["src"],
+    defines = ["ROO_SCHEDULER_IGNORE_PRIORITY=1"],
+    deps = ["@roo_collections", "@roo_threads", "@roo_time"],
+)
+
+cc_test(
+    name = "roo_scheduler_without_priority_test",
+    srcs = ["test/roo_scheduler_allocation_test.cpp"],
+    size = "small",
+    linkstatic = 1,
+    deps = [
+        ":roo_scheduler_without_priority",
+        "@googletest//:gtest",
+        "@roo_testing//:arduino_gtest_main",
+        "@roo_testing//roo_testing/system:manual_time_mode",
+    ],
+)
