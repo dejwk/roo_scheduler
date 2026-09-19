@@ -1,3 +1,14 @@
+# roo_scheduler 2.2.0
+
+- Fixed ready-queue cancellation, pending-work queries, singleton rescheduling, and owned-task cleanup.
+- Added thread-safe adapter controls, permanent `shutdown()` methods, and `Scheduler::cancelAndWait()` for safe teardown. Dispatch remains limited to one thread, with nested dispatch supported.
+- Defined dispatch timestamps as admission cutoffs: previously admitted tasks remain eligible when later calls use earlier cutoffs.
+- Removed temporary allocations when retiring canceled owned tasks and moved their destruction outside scheduler locks.
+- Expanded regression, concurrency, and allocation tests; documented threading and lifetime requirements.
+- Updated dependencies to `roo_collections` ≥ 1.4.7, `roo_threads` ≥ 1.2.8, and `roo_time` ≥ 2.0.0; upgraded `roo_testing` to 2.1.2, `rules_cc` to 0.2.25, GoogleTest to 1.18.0.bcr.1, and CI dependencies.
+
+---
+
 # [roo_scheduler 2.1.10](https://github.com/dejwk/roo_scheduler/releases/tag/2.1.10)
 
 Published 2026-08-29.
