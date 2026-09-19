@@ -15,7 +15,7 @@ using namespace roo_scheduler;
 Scheduler scheduler;
 
 RepetitiveTask tick(scheduler, Seconds(1),
-                    [] { Serial.printf("Tick: %d\n", millis() / 1000); });
+                    [] { Serial.printf("Tick: %lu\n", millis() / 1000); });
 
 void toggle_fn() {
   static bool is_on = false;
