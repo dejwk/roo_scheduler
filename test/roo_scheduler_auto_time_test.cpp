@@ -1,8 +1,7 @@
-#include "roo_scheduler.h"
-
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "roo_scheduler.h"
 #include "roo_time.h"
 
 namespace roo_scheduler {
@@ -15,14 +14,16 @@ struct TestTask : public Executable {
   std::vector<ExecutionID>& observed;
 };
 
+// Verifies an expired delay drains normal and higher priorities, leaving lower
+// priorities pending until they are explicitly requested.
 TEST(Scheduler, DelayWithNormalPriority) {
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
-  std::vector<ExecutionID> expected;
   TestTask test(observed);
 
-  Uptime now = Uptime::Now();
-  Uptime trigger = now + Micros(100);
+  // An expired deadline exercises the guaranteed final drain without relying
+  // on how much opportunistic work fits into a host scheduling interval.
+  Uptime trigger = Uptime::Now();
   ExecutionID id1 = scheduler.scheduleOn(trigger, test, PRIORITY_BACKGROUND);
   ExecutionID id2 = scheduler.scheduleOn(trigger, test, PRIORITY_REDUCED);
   ExecutionID id3 = scheduler.scheduleOn(trigger, test, PRIORITY_NORMAL);
@@ -30,45 +31,56 @@ TEST(Scheduler, DelayWithNormalPriority) {
   ExecutionID id5 = scheduler.scheduleOn(trigger, test, PRIORITY_SENSITIVE);
   ExecutionID id6 = scheduler.scheduleOn(trigger, test, PRIORITY_CRITICAL);
 
-  scheduler.delayUntil(now + Micros(50));
+  scheduler.delayUntil(trigger);
+  std::vector<ExecutionID> expected = {id6, id5, id4, id3};
   EXPECT_EQ(observed, expected);
-  expected.push_back(id6);
-  expected.push_back(id5);
-  expected.push_back(id4);
-  expected.push_back(id3);
-  scheduler.delayUntil(now + Micros(100));
-  EXPECT_EQ(observed, expected);
+
+  scheduler.delayUntil(trigger, PRIORITY_BACKGROUND);
   expected.push_back(id2);
   expected.push_back(id1);
-  scheduler.delayUntil(now + Micros(2000));
   EXPECT_EQ(observed, expected);
 }
 
+// Verifies an expired delay honors a heightened priority threshold and a later
+// background-priority drain executes all remaining tasks in priority order.
 TEST(Scheduler, DelayWithHeightenedPriority) {
   Scheduler scheduler;
   std::vector<ExecutionID> observed;
-  std::vector<ExecutionID> expected;
   TestTask test(observed);
 
-  Uptime now = Uptime::Now();
-  Uptime trigger = now + Micros(100);
+  Uptime trigger = Uptime::Now();
   ExecutionID id1 = scheduler.scheduleOn(trigger, test, PRIORITY_BACKGROUND);
   ExecutionID id2 = scheduler.scheduleOn(trigger, test, PRIORITY_REDUCED);
   ExecutionID id3 = scheduler.scheduleOn(trigger, test, PRIORITY_NORMAL);
   ExecutionID id4 = scheduler.scheduleOn(trigger, test, PRIORITY_ELEVATED);
   ExecutionID id5 = scheduler.scheduleOn(trigger, test, PRIORITY_SENSITIVE);
   ExecutionID id6 = scheduler.scheduleOn(trigger, test, PRIORITY_CRITICAL);
-  scheduler.delayUntil(now + Micros(50), PRIORITY_SENSITIVE);
+
+  scheduler.delayUntil(trigger, PRIORITY_SENSITIVE);
+  std::vector<ExecutionID> expected = {id6, id5};
   EXPECT_EQ(observed, expected);
-  expected.push_back(id6);
-  expected.push_back(id5);
-  scheduler.delayUntil(now + Micros(100), PRIORITY_SENSITIVE);
-  EXPECT_EQ(observed, expected);
+
+  scheduler.delayUntil(trigger, PRIORITY_BACKGROUND);
   expected.push_back(id4);
   expected.push_back(id3);
   expected.push_back(id2);
   expected.push_back(id1);
-  scheduler.delayUntil(now + Micros(2000));
+  EXPECT_EQ(observed, expected);
+}
+
+// Verifies automatic time reaches the deadline and executes work due at that
+// deadline, including background tasks when the caller requests them.
+TEST(Scheduler, DelayUntilFutureDeadline) {
+  Scheduler scheduler;
+  std::vector<ExecutionID> observed;
+  TestTask test(observed);
+
+  Uptime deadline = Uptime::Now() + Millis(10);
+  ExecutionID id = scheduler.scheduleOn(deadline, test, PRIORITY_BACKGROUND);
+  scheduler.delayUntil(deadline, PRIORITY_BACKGROUND);
+
+  EXPECT_GE(Uptime::Now(), deadline);
+  std::vector<ExecutionID> expected = {id};
   EXPECT_EQ(observed, expected);
 }
 
