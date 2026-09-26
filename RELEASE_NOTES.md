@@ -1,3 +1,11 @@
+# roo_scheduler 2.2.1
+
+- Upgrade `roo_collections` to 1.4.8, `roo_threads` to 1.2.9, and `roo_time` to 2.0.1; update PlatformIO minimum versions accordingly.
+- Upgrade `roo_testing` to 2.3.0.
+- Improve ESP32 test tooling with automatic ESP-IDF profile selection for example runs and a helper to test both Arduino and ESP-IDF profiles.
+
+---
+
 # roo_scheduler 2.2.0
 
 - Fixed ready-queue cancellation, pending-work queries, singleton rescheduling, and owned-task cleanup.
