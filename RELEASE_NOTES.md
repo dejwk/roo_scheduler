@@ -1,12 +1,9 @@
-# Unreleased
+# roo_scheduler 2.3.0
 
-- Add `SchedulerClient`, a restricted base exposing scheduling and cancellation,
-  and rename the owning class to `SchedulingService`. Keep `Scheduler` as a
-  deprecated alias for source migration.
-- Accept `SchedulerClient&` in all task adapters while preserving existing owner
-  call sites and lifecycle behavior. Consumers must rebuild dependent binaries.
-- Document the staged naming migration and verify restricted access and adapter
-  operation with and without priorities.
+- Add `SchedulerClient`, a restricted interface for scheduling and cancellation, and rename the owning class to `SchedulingService`. Keep `Scheduler` as a deprecated compatibility alias.
+- Update all task adapters to accept `SchedulerClient&`, preserving existing owner call sites and lifecycle behavior.
+- Document the staged migration and update examples. Rebuild dependent binaries; update `class Scheduler` forward declarations and, where needed, explicitly typed pointers to inherited members.
+- Add tests for restricted access, compatibility, scheduling, cancellation, and adapter operation with and without priorities.
 
 ---
 
