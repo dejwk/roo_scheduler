@@ -27,6 +27,7 @@ cc_test(
     name = "roo_scheduler_test",
     srcs = [
         "test/roo_scheduler_test.cpp",
+        "test/scheduler_client_test.cpp",
     ],
     copts = ["-Iexternal/gtest/include"],
     includes = ["src"],
@@ -89,7 +90,7 @@ cc_library(
 
 cc_test(
     name = "roo_scheduler_without_priority_test",
-    srcs = ["test/roo_scheduler_allocation_test.cpp"],
+    srcs = ["test/roo_scheduler_allocation_test.cpp", "test/scheduler_client_test.cpp"],
     size = "small",
     linkstatic = 1,
     deps = [

@@ -12,7 +12,7 @@ using namespace roo_scheduler;
 // At any given time, the scheduler queue will contain up to 3 elements, and it
 // will never get reallocated. Its total memory footprint is ~120 bytes
 // allocated on startup (to back a queue with capacity of 8 elements).
-Scheduler scheduler;
+SchedulingService scheduler;
 
 PeriodicTask task1(scheduler, Seconds(2),
                    [] { Serial.printf("Tick: %lu\n", millis() / 1000); });

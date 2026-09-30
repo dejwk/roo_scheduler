@@ -1,3 +1,15 @@
+# Unreleased
+
+- Add `SchedulerClient`, a restricted base exposing scheduling and cancellation,
+  and rename the owning class to `SchedulingService`. Keep `Scheduler` as a
+  deprecated alias for source migration.
+- Accept `SchedulerClient&` in all task adapters while preserving existing owner
+  call sites and lifecycle behavior. Consumers must rebuild dependent binaries.
+- Document the staged naming migration and verify restricted access and adapter
+  operation with and without priorities.
+
+---
+
 # roo_scheduler 2.2.1
 
 - Upgrade `roo_collections` to 1.4.8, `roo_threads` to 1.2.9, and `roo_time` to 2.0.1; update PlatformIO minimum versions accordingly.

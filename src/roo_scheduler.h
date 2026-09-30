@@ -23,8 +23,8 @@
 /// using namespace roo_time;
 /// using namespace roo_scheduler;
 ///
-/// Scheduler scheduler;
-/// RepetitiveTask foo_task(scheduler, foo, Seconds(5));
+/// SchedulingService scheduler;
+/// RepetitiveTask foo_task(scheduler, Seconds(5), foo);
 ///
 /// void setup() {
 ///   foo_task.start();
@@ -100,38 +100,34 @@ class Executable {
   virtual void execute(ExecutionID id) = 0;
 
  private:
-  friend class Scheduler;
+  friend class SchedulerClient;
   // Used only after the scheduler removes an owned task from its queues.
-  Executable *retired_next_ = nullptr;
+  Executable* retired_next_ = nullptr;
 };
 
-/// Schedules and dispatches delayed task executions.
+/// Provides scheduling and cancellation without access to dispatch operations.
 ///
-/// Scheduler does not execute eligible work automatically; caller must invoke
-/// one of `executeEligibleTasks*()` methods.
-///
-/// Scheduling, cancellation and queries may be called from any thread. Dispatch
-/// must be serialized on one thread; nested dispatch on that thread is allowed.
-/// Callbacks and canceled task destructors run without the scheduler mutex.
-/// Stop dispatch and all producers before destroying the scheduler. The
-/// scheduler must outlive every adapter that refers to it.
-class Scheduler {
+/// Borrow this interface from a SchedulingService. The service must outlive
+/// every client reference and task adapter. Scheduling and cancellation may be
+/// called from any thread; neither dispatches callbacks inline nor waits for
+/// callback completion. Another thread may already be dispatching work, and
+/// cancellation may synchronously destroy owned tasks outside scheduler locks.
+/// Adapters retain their documented shutdown and lifetime requirements.
+class SchedulerClient {
  public:
-  /// Creates an empty scheduler.
-  Scheduler();
-  ~Scheduler();
-
   /// Schedules execution no earlier than `when`.
   ///
   /// Caller retains ownership and must keep `task` alive until execution or
-  /// cancellation followed by quiescence (see `cancelAndWait()`).
-  ExecutionID scheduleOn(roo_time::Uptime when, Executable &task,
+  /// cancellation followed by quiescence (see
+  /// SchedulingService::cancelAndWait()).
+  ExecutionID scheduleOn(roo_time::Uptime when, Executable& task,
                          Priority priority = Priority::kNormal);
 
   /// Schedules execution no earlier than `when`.
   ///
-  /// Scheduler takes ownership of `task` and destroys it after execution or
-  /// cancellation followed by quiescence (see `cancelAndWait()`).
+  /// The service takes ownership of `task` and destroys it after execution or
+  /// cancellation followed by quiescence (see
+  /// SchedulingService::cancelAndWait()).
   ExecutionID scheduleOn(roo_time::Uptime when,
                          std::unique_ptr<Executable> task,
                          Priority priority = Priority::kNormal);
@@ -142,7 +138,7 @@ class Scheduler {
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `scheduleOn(when, task, priority)`.
-  ExecutionID scheduleOn(Executable *task, roo_time::Uptime when,
+  ExecutionID scheduleOn(Executable* task, roo_time::Uptime when,
                          Priority priority = Priority::kNormal) {
     return scheduleOn(when, *task, priority);
   }
@@ -151,14 +147,16 @@ class Scheduler {
   /// Schedules execution after `delay` elapses.
   ///
   /// Caller retains ownership and must keep `task` alive until execution or
-  /// cancellation followed by quiescence (see `cancelAndWait()`).
-  ExecutionID scheduleAfter(roo_time::Duration delay, Executable &task,
+  /// cancellation followed by quiescence (see
+  /// SchedulingService::cancelAndWait()).
+  ExecutionID scheduleAfter(roo_time::Duration delay, Executable& task,
                             Priority priority = Priority::kNormal);
 
   /// Schedules execution after `delay` elapses.
   ///
-  /// Scheduler takes ownership of `task` and destroys it after execution or
-  /// cancellation followed by quiescence (see `cancelAndWait()`).
+  /// The service takes ownership of `task` and destroys it after execution or
+  /// cancellation followed by quiescence (see
+  /// SchedulingService::cancelAndWait()).
   ExecutionID scheduleAfter(roo_time::Duration delay,
                             std::unique_ptr<Executable> task,
                             Priority priority = Priority::kNormal);
@@ -170,7 +168,7 @@ class Scheduler {
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `scheduleAfter(delay, task, priority)`.
-  ExecutionID scheduleAfter(Executable *task, roo_time::Duration delay,
+  ExecutionID scheduleAfter(Executable* task, roo_time::Duration delay,
                             Priority priority = Priority::kNormal) {
     return scheduleAfter(delay, *task, priority);
   }
@@ -179,16 +177,18 @@ class Scheduler {
   /// Schedules execution as soon as possible.
   ///
   /// Caller retains ownership and must keep `task` alive until execution or
-  /// cancellation followed by quiescence (see `cancelAndWait()`).
-  ExecutionID scheduleNow(Executable &task,
+  /// cancellation followed by quiescence (see
+  /// SchedulingService::cancelAndWait()).
+  ExecutionID scheduleNow(Executable& task,
                           Priority priority = Priority::kNormal) {
     return scheduleOn(roo_time::Uptime::Now(), task, priority);
   }
 
   /// Schedules execution as soon as possible.
   ///
-  /// Scheduler takes ownership of `task` and destroys it after execution or
-  /// cancellation followed by quiescence (see `cancelAndWait()`).
+  /// The service takes ownership of `task` and destroys it after execution or
+  /// cancellation followed by quiescence (see
+  /// SchedulingService::cancelAndWait()).
   ExecutionID scheduleNow(std::unique_ptr<Executable> task,
                           Priority priority = Priority::kNormal) {
     return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
@@ -199,6 +199,261 @@ class Scheduler {
                           Priority priority = Priority::kNormal) {
     return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
   }
+
+  /// Marks execution identified by `id` as canceled.
+  ///
+  /// Canceled entries may remain in queue until pruned, but will not run unless
+  /// dispatch already claimed them. This operation does not wait for callbacks
+  /// and does not by itself permit destroying a borrowed task on another
+  /// thread.
+  void cancel(ExecutionID);
+
+ protected:
+  SchedulerClient();
+  ~SchedulerClient();
+
+ private:
+  SchedulerClient(const SchedulerClient&) = delete;
+  SchedulerClient& operator=(const SchedulerClient&) = delete;
+  SchedulerClient(SchedulerClient&&) = delete;
+  SchedulerClient& operator=(SchedulerClient&&) = delete;
+
+  friend class SchedulingService;
+  friend class RepetitiveTask;
+  friend class PeriodicTask;
+  friend class IteratingTask;
+
+  bool cancelAndWait(Executable& task);
+
+  struct InFlight {
+    explicit InFlight(SchedulerClient& scheduler) : scheduler(scheduler) {}
+    ~InFlight();
+    SchedulerClient& scheduler;
+    Executable* task = nullptr;
+#ifndef ROO_THREADS_SINGLETHREADED
+    roo::thread::id thread;
+#endif
+    InFlight* previous = nullptr;
+  };
+  InFlight* in_flight_ = nullptr;
+
+  class Entry {
+   public:
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+    Entry()
+        : id_(0),
+          task_(nullptr),
+          when_(roo_time::Uptime::Max()),
+          priority_(Priority::kNormal),
+          owns_task_(false) {}
+
+    Entry(ExecutionID id, Executable* task, bool owns_task,
+          roo_time::Uptime when, Priority priority)
+        : id_(id),
+          task_(task),
+          when_(when),
+          priority_(priority),
+          owns_task_(owns_task) {}
+
+    Entry(Entry&& other)
+        : id_(other.id_),
+          task_(other.task_),
+          when_(other.when_),
+          priority_(other.priority_),
+          owns_task_(other.owns_task_) {
+      other.task_ = nullptr;
+      other.owns_task_ = false;
+    }
+
+    Entry& operator=(Entry&& other) {
+      if (this == &other) return *this;
+      if (owns_task_) {
+        delete task_;
+      }
+      id_ = other.id_;
+      task_ = other.task_;
+      when_ = other.when_;
+      priority_ = other.priority_;
+      owns_task_ = other.owns_task_;
+      other.task_ = nullptr;
+      other.owns_task_ = false;
+      return *this;
+    }
+
+#else
+    Entry()
+        : id_(0),
+          task_(nullptr),
+          when_(roo_time::Uptime::Max()),
+          owns_task_(false) {}
+
+    Entry(ExecutionID id, Executable* task, bool owns_task,
+          roo_time::Uptime when, Priority priority)
+        : id_(id), task_(task), when_(when), owns_task_(owns_task) {}
+
+    Entry(Entry&& other)
+        : id_(other.id_),
+          task_(other.task_),
+          when_(other.when_),
+          owns_task_(other.owns_task_) {
+      other.owns_task_ = false;
+    }
+
+    Entry& operator=(Entry&& other) {
+      if (this == &other) return *this;
+      if (owns_task_) {
+        delete task_;
+      }
+      id_ = other.id_;
+      task_ = other.task_;
+      when_ = other.when_;
+      owns_task_ = other.owns_task_;
+      other.task_ = nullptr;
+      other.owns_task_ = false;
+      return *this;
+    }
+#endif
+
+    Entry(const Entry& other) = delete;
+    Entry& operator=(const Entry& other) = delete;
+
+    ~Entry() {
+      if (owns_task_) {
+        delete task_;
+      }
+    }
+
+    roo_time::Uptime when() const { return when_; }
+    Executable* task() const { return task_; }
+    ExecutionID id() const { return id_; }
+
+    Priority priority() const {
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+      return priority_;
+#else
+      return Priority::kNormal;
+#endif
+    }
+
+    bool owns_task() const { return owns_task_; }
+
+    Executable* releaseOwnedTask() {
+      if (!owns_task_) return nullptr;
+      Executable* task = task_;
+      task_ = nullptr;
+      owns_task_ = false;
+      return task;
+    }
+
+   private:
+    friend struct TimeComparator;
+
+    ExecutionID id_;
+    Executable* task_;
+    roo_time::Uptime when_;
+
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+    Priority priority_;
+#endif
+    bool owns_task_;
+  };
+
+  // Orders scheduled tasks in the queue by their nearest execution time.
+  struct TimeComparator {
+    bool operator()(const Entry& a, const Entry& b) {
+      return a.when() > b.when() ||
+             (a.when() == b.when() && a.id() - b.id() > 0);
+    }
+  };
+
+  // Used for tasks that are already due, ordering them by priority.
+  struct PriorityComparator {
+    bool operator()(const Entry& a, const Entry& b) {
+      return a.priority() < b.priority() ||
+             (a.priority() == b.priority() &&
+              (a.when() > b.when() ||
+               (a.when() == b.when() && a.id() - b.id() > 0)));
+    }
+  };
+
+  // Intrusive retirement avoids allocating during cancellation or dispatch.
+  // Declare before lock guards so user destructors run after unlocking.
+  class RetiredTasks {
+   public:
+    ~RetiredTasks();
+    void add(Entry&& entry);
+
+   private:
+    Executable* head_ = nullptr;
+  };
+
+  friend class SingletonTask;
+  // Retired owned tasks must outlive both scheduler and adapter lock guards.
+  ExecutionID replace(ExecutionID previous, roo_time::Uptime when,
+                      Executable& task, Priority priority,
+                      RetiredTasks& retired);
+
+  roo_time::Uptime getNearestExecutionTimeWithLockHeld() const;
+
+  roo_time::Duration getNearestExecutionDelayWithLockHeld() const;
+
+  ExecutionID push(roo_time::Uptime when, Executable* task, bool owns_task,
+                   Priority priority);
+  void pop(RetiredTasks& retired);
+
+  // Returns true if has been executed; false if there was no eligible
+  // execution.
+  bool runOneEligibleExecution(roo_time::Uptime deadline,
+                               Priority min_priority);
+
+  // Entries in the queue_ are stored as a heap. (We're not directly using
+  // std::priority_queue in order to support cancellation; see prune()). Since
+  // the entries are stored in a vector, when the number of scheduled executions
+  // is bounded, there will be no dynamic allocation once the vector reaches
+  // sufficient capacity. At the same time, even if executions are dynamically
+  // created, the queue can accommodate them, as long as there is sufficient
+  // amount of memory.
+  //
+  // We maintain the invariant that the top (front) of the queue is a
+  // non-canceled execution.
+  std::vector<Entry> queue_;
+
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+  // Tasks that are due. Heap, ordered by priority.
+  std::vector<Entry> ready_;
+#endif
+
+  ExecutionID next_execution_id_;
+
+  // Deferred cancellation set, containing IDs of scheduled executions that have
+  // been canceled. These records cover pending entries, not claimed callbacks.
+  //
+  // Calling pruneCanceled() removes all canceled executions from the queue, and
+  // clears this set.
+  roo_collections::FlatSmallHashSet<ExecutionID> canceled_;
+
+  mutable roo::mutex mutex_;
+  // Queue changes and execution completion share the same mutex/predicate loop.
+  roo::condition_variable changed_;
+};
+
+/// Schedules and dispatches delayed task executions.
+///
+/// SchedulingService does not execute eligible work automatically; caller must
+/// invoke one of `executeEligibleTasks*()` methods.
+///
+/// Scheduling, cancellation and queries may be called from any thread. Dispatch
+/// must be serialized on one thread; nested dispatch on that thread is allowed.
+/// Callbacks and canceled task destructors run without the scheduler mutex.
+/// Stop dispatch and all producers before destroying the scheduler. The
+/// scheduler must outlive every adapter that refers to it.
+class SchedulingService : public SchedulerClient {
+ public:
+  /// Creates an empty scheduling service.
+  SchedulingService() = default;
+
+  /// Destroys queued work after dispatch and all producers have stopped.
+  ~SchedulingService() = default;
 
   /// Admits queued tasks due no later than now, then dispatches eligible work.
   /// See executeEligibleTasksUpTo() for admission semantics.
@@ -247,20 +502,14 @@ class Scheduler {
   /// Returns delay to the nearest upcoming execution.
   roo_time::Duration getNearestExecutionDelay() const;
 
-  /// Marks execution identified by `id` as canceled.
-  ///
-  /// Canceled entries may remain in queue until pruned, but will not run unless
-  /// dispatch already claimed them. This operation does not wait for callbacks
-  /// and does not by itself permit destroying a borrowed task on another
-  /// thread.
-  void cancel(ExecutionID);
-
   /// Cancels all pending executions of a borrowed task and waits for claimed
   /// executions to return. Prevent concurrent rescheduling before calling this.
   /// Do not hold a lock that the callback needs. Returns false instead of
   /// waiting if this thread is currently dispatching the task (including an
   /// outer callback during nested dispatch). In that case it is not quiescent.
-  bool cancelAndWait(Executable &task);
+  bool cancelAndWait(Executable& task) {
+    return SchedulerClient::cancelAndWait(task);
+  }
 
   /// Removes canceled executions from the queue.
   ///
@@ -290,219 +539,12 @@ class Scheduler {
 
   /// Runs scheduler event loop forever.
   void run();
-
- private:
-  struct InFlight {
-    explicit InFlight(Scheduler &scheduler) : scheduler(scheduler) {}
-    ~InFlight();
-    Scheduler &scheduler;
-    Executable *task = nullptr;
-#ifndef ROO_THREADS_SINGLETHREADED
-    roo::thread::id thread;
-#endif
-    InFlight *previous = nullptr;
-  };
-  InFlight *in_flight_ = nullptr;
-
-  class Entry {
-   public:
-#if !ROO_SCHEDULER_IGNORE_PRIORITY
-    Entry()
-        : id_(0),
-          task_(nullptr),
-          when_(roo_time::Uptime::Max()),
-          priority_(Priority::kNormal),
-          owns_task_(false) {}
-
-    Entry(ExecutionID id, Executable *task, bool owns_task,
-          roo_time::Uptime when, Priority priority)
-        : id_(id),
-          task_(task),
-          when_(when),
-          priority_(priority),
-          owns_task_(owns_task) {}
-
-    Entry(Entry &&other)
-        : id_(other.id_),
-          task_(other.task_),
-          when_(other.when_),
-          priority_(other.priority_),
-          owns_task_(other.owns_task_) {
-      other.task_ = nullptr;
-      other.owns_task_ = false;
-    }
-
-    Entry &operator=(Entry &&other) {
-      if (this == &other) return *this;
-      if (owns_task_) {
-        delete task_;
-      }
-      id_ = other.id_;
-      task_ = other.task_;
-      when_ = other.when_;
-      priority_ = other.priority_;
-      owns_task_ = other.owns_task_;
-      other.task_ = nullptr;
-      other.owns_task_ = false;
-      return *this;
-    }
-
-#else
-    Entry()
-        : id_(0),
-          task_(nullptr),
-          when_(roo_time::Uptime::Max()),
-          owns_task_(false) {}
-
-    Entry(ExecutionID id, Executable *task, bool owns_task,
-          roo_time::Uptime when, Priority priority)
-        : id_(id), task_(task), when_(when), owns_task_(owns_task) {}
-
-    Entry(Entry &&other)
-        : id_(other.id_),
-          task_(other.task_),
-          when_(other.when_),
-          owns_task_(other.owns_task_) {
-      other.owns_task_ = false;
-    }
-
-    Entry &operator=(Entry &&other) {
-      if (this == &other) return *this;
-      if (owns_task_) {
-        delete task_;
-      }
-      id_ = other.id_;
-      task_ = other.task_;
-      when_ = other.when_;
-      owns_task_ = other.owns_task_;
-      other.task_ = nullptr;
-      other.owns_task_ = false;
-      return *this;
-    }
-#endif
-
-    Entry(const Entry &other) = delete;
-    Entry &operator=(const Entry &other) = delete;
-
-    ~Entry() {
-      if (owns_task_) {
-        delete task_;
-      }
-    }
-
-    roo_time::Uptime when() const { return when_; }
-    Executable *task() const { return task_; }
-    ExecutionID id() const { return id_; }
-
-    Priority priority() const {
-#if !ROO_SCHEDULER_IGNORE_PRIORITY
-      return priority_;
-#else
-      return Priority::kNormal;
-#endif
-    }
-
-    bool owns_task() const { return owns_task_; }
-
-    Executable *releaseOwnedTask() {
-      if (!owns_task_) return nullptr;
-      Executable *task = task_;
-      task_ = nullptr;
-      owns_task_ = false;
-      return task;
-    }
-
-   private:
-    friend struct TimeComparator;
-
-    ExecutionID id_;
-    Executable *task_;
-    roo_time::Uptime when_;
-
-#if !ROO_SCHEDULER_IGNORE_PRIORITY
-    Priority priority_;
-#endif
-    bool owns_task_;
-  };
-
-  // Orders scheduled tasks in the queue by their nearest execution time.
-  struct TimeComparator {
-    bool operator()(const Entry &a, const Entry &b) {
-      return a.when() > b.when() ||
-             (a.when() == b.when() && a.id() - b.id() > 0);
-    }
-  };
-
-  // Used for tasks that are already due, ordering them by priority.
-  struct PriorityComparator {
-    bool operator()(const Entry &a, const Entry &b) {
-      return a.priority() < b.priority() ||
-             (a.priority() == b.priority() &&
-              (a.when() > b.when() ||
-               (a.when() == b.when() && a.id() - b.id() > 0)));
-    }
-  };
-
-  // Intrusive retirement avoids allocating during cancellation or dispatch.
-  // Declare before lock guards so user destructors run after unlocking.
-  class RetiredTasks {
-   public:
-    ~RetiredTasks();
-    void add(Entry &&entry);
-
-   private:
-    Executable *head_ = nullptr;
-  };
-
-  friend class SingletonTask;
-  // Retired owned tasks must outlive both scheduler and adapter lock guards.
-  ExecutionID replace(ExecutionID previous, roo_time::Uptime when,
-                      Executable &task, Priority priority,
-                      RetiredTasks &retired);
-
-  roo_time::Uptime getNearestExecutionTimeWithLockHeld() const;
-
-  roo_time::Duration getNearestExecutionDelayWithLockHeld() const;
-
-  ExecutionID push(roo_time::Uptime when, Executable *task, bool owns_task,
-                   Priority priority);
-  void pop(RetiredTasks &retired);
-
-  // Returns true if has been executed; false if there was no eligible
-  // execution.
-  bool runOneEligibleExecution(roo_time::Uptime deadline,
-                               Priority min_priority);
-
-  // Entries in the queue_ are stored as a heap. (We're not directly using
-  // std::priority_queue in order to support cancellation; see prune()). Since
-  // the entries are stored in a vector, when the number of scheduled executions
-  // is bounded, there will be no dynamic allocation once the vector reaches
-  // sufficient capacity. At the same time, even if executions are dynamically
-  // created, the queue can accommodate them, as long as there is sufficient
-  // amount of memory.
-  //
-  // We maintain the invariant that the top (front) of the queue is a
-  // non-canceled execution.
-  std::vector<Entry> queue_;
-
-#if !ROO_SCHEDULER_IGNORE_PRIORITY
-  // Tasks that are due. Heap, ordered by priority.
-  std::vector<Entry> ready_;
-#endif
-
-  ExecutionID next_execution_id_;
-
-  // Deferred cancellation set, containing IDs of scheduled executions that have
-  // been canceled. These records cover pending entries, not claimed callbacks.
-  //
-  // Calling pruneCanceled() removes all canceled executions from the queue, and
-  // clears this set.
-  roo_collections::FlatSmallHashSet<ExecutionID> canceled_;
-
-  mutable roo::mutex mutex_;
-  // Queue changes and execution completion share the same mutex/predicate loop.
-  roo::condition_variable changed_;
 };
+
+/// Compatibility alias for the owning scheduling service.
+using Scheduler
+    [[deprecated("Use SchedulingService for ownership and dispatch")]] =
+        SchedulingService;
 
 /// Convenience adapter for one-time execution of an arbitrary callable.
 class Task : public Executable {
@@ -522,13 +564,13 @@ class Task : public Executable {
 /// destroying state referenced by a callback, and keep the scheduler alive.
 class RepetitiveTask : public Executable {
  public:
-  RepetitiveTask(Scheduler &scheduler, roo_time::Duration delay,
+  RepetitiveTask(SchedulerClient& scheduler, roo_time::Duration delay,
                  std::function<void()> task,
                  Priority priority = Priority::kNormal);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `RepetitiveTask(scheduler, delay, task, priority)`.
-  RepetitiveTask(Scheduler &scheduler, std::function<void()> task,
+  RepetitiveTask(SchedulerClient& scheduler, std::function<void()> task,
                  roo_time::Duration delay,
                  Priority priority = Priority::kNormal)
       : RepetitiveTask(scheduler, delay, std::move(task), priority) {}
@@ -571,7 +613,7 @@ class RepetitiveTask : public Executable {
   ~RepetitiveTask();
 
  private:
-  Scheduler &scheduler_;
+  SchedulerClient& scheduler_;
   std::function<void()> task_;
   mutable roo::mutex mutex_;
   // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
@@ -586,13 +628,13 @@ class RepetitiveTask : public Executable {
 /// Shares RepetitiveTask's threading and lifetime contract.
 class PeriodicTask : public Executable {
  public:
-  PeriodicTask(Scheduler &scheduler, roo_time::Duration period,
+  PeriodicTask(SchedulerClient& scheduler, roo_time::Duration period,
                std::function<void()> task,
                Priority priority = Priority::kNormal);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `PeriodicTask(scheduler, period, task, priority)`.
-  PeriodicTask(Scheduler &scheduler, std::function<void()> task,
+  PeriodicTask(SchedulerClient& scheduler, std::function<void()> task,
                roo_time::Duration period, Priority priority = Priority::kNormal)
       : PeriodicTask(scheduler, period, std::move(task), priority) {}
 #endif
@@ -621,7 +663,7 @@ class PeriodicTask : public Executable {
   ~PeriodicTask();
 
  private:
-  Scheduler &scheduler_;
+  SchedulerClient& scheduler_;
   std::function<void()> task_;
   mutable roo::mutex mutex_;
   // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
@@ -638,7 +680,7 @@ class PeriodicTask : public Executable {
 /// alive until the callback returns. Use shutdown() before owner teardown.
 class SingletonTask : public Executable {
  public:
-  SingletonTask(Scheduler &scheduler, std::function<void()> task);
+  SingletonTask(SchedulerClient& scheduler, std::function<void()> task);
 
   bool is_scheduled() const;
 
@@ -674,7 +716,7 @@ class SingletonTask : public Executable {
   ~SingletonTask();
 
  private:
-  Scheduler &scheduler_;
+  SchedulerClient& scheduler_;
   std::shared_ptr<std::function<void()>> task_;
   mutable roo::mutex mutex_;
   // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
@@ -692,7 +734,7 @@ class IteratingTask : public Executable {
     virtual int64_t next() = 0;
   };
 
-  IteratingTask(Scheduler &scheduler, Iterator &iterator,
+  IteratingTask(SchedulerClient& scheduler, Iterator& iterator,
                 std::function<void()> done_cb = std::function<void()>());
 
   bool start(roo_time::Uptime when = roo_time::Uptime::Now());
@@ -713,8 +755,8 @@ class IteratingTask : public Executable {
   ~IteratingTask();
 
  private:
-  Scheduler &scheduler_;
-  Iterator &itr_;
+  SchedulerClient& scheduler_;
+  Iterator& itr_;
   mutable roo::mutex mutex_;
   // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
   ExecutionID id_;

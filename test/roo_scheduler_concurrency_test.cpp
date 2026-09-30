@@ -9,7 +9,7 @@ namespace roo_scheduler {
 using namespace roo_time;
 
 TEST(SchedulerConcurrency, ImmediateSingletonPublication) {
-  Scheduler s;
+  SchedulingService s;
   roo::binary_semaphore submitted(0), finished(0);
   std::atomic<int> calls{0};
   SingletonTask task(s, [&] {
@@ -41,7 +41,7 @@ TEST(SchedulerConcurrency, ImmediateSingletonPublication) {
 }
 
 TEST(SchedulerConcurrency, RepetitiveRestartWinsOverRunningCallback) {
-  Scheduler s;
+  SchedulingService s;
   roo::binary_semaphore entered(0), release(0);
   int calls = 0;
   RepetitiveTask task(s, Millis(1), [&] {
@@ -65,7 +65,7 @@ TEST(SchedulerConcurrency, RepetitiveRestartWinsOverRunningCallback) {
 }
 
 TEST(SchedulerConcurrency, PeriodicRestartKeepsNewTarget) {
-  Scheduler s;
+  SchedulingService s;
   roo::binary_semaphore entered(0), release(0);
   PeriodicTask task(s, Millis(1), [&] {
     entered.release();
@@ -83,7 +83,7 @@ TEST(SchedulerConcurrency, PeriodicRestartKeepsNewTarget) {
 }
 
 TEST(SchedulerConcurrency, ShutdownWaitsWithoutHoldingAdapterMutex) {
-  Scheduler s;
+  SchedulingService s;
   roo::binary_semaphore entered(0), release(0);
   std::atomic<bool> finished{false};
   RepetitiveTask* ptr = nullptr;
@@ -112,7 +112,7 @@ TEST(SchedulerConcurrency, ShutdownWaitsWithoutHoldingAdapterMutex) {
 
 TEST(SchedulerConcurrency,
      ClaimedSingletonIsQuiescentBeforeDestructionReturns) {
-  Scheduler s;
+  SchedulingService s;
   roo::binary_semaphore entered(0), release(0), deleting(0);
   std::atomic<bool> callback_finished{false};
   std::atomic<bool> destructor_finished{false};
@@ -139,7 +139,7 @@ TEST(SchedulerConcurrency,
 }
 
 TEST(SchedulerConcurrency, SelfShutdownDoesNotWaitOnOuterNestedCallback) {
-  Scheduler s;
+  SchedulingService s;
   SingletonTask* outer_ptr = nullptr;
   SingletonTask outer(s, [&] {
     s.scheduleNow([&] { EXPECT_FALSE(outer_ptr->shutdown()); });
@@ -154,7 +154,7 @@ TEST(SchedulerConcurrency, SelfShutdownDoesNotWaitOnOuterNestedCallback) {
 }
 
 TEST(SchedulerConcurrency, SingletonMayDeleteItselfAndKeepCaptureAlive) {
-  Scheduler s;
+  SchedulingService s;
   std::unique_ptr<SingletonTask> task;
   int observed = 0;
   task.reset(new SingletonTask(s, [&, value = std::make_shared<int>(42)] {
@@ -167,7 +167,7 @@ TEST(SchedulerConcurrency, SingletonMayDeleteItselfAndKeepCaptureAlive) {
 }
 
 TEST(SchedulerConcurrency, SingletonRetainsMutableCallableState) {
-  Scheduler s;
+  SchedulingService s;
   int observed = 0;
   SingletonTask task(s, [&, count = 0]() mutable { observed = ++count; });
   task.scheduleNow();
@@ -181,7 +181,7 @@ TEST(SchedulerConcurrency, IteratorCompletionCanDestroyTask) {
   struct Finished : IteratingTask::Iterator {
     int64_t next() override { return -1; }
   } iterator;
-  Scheduler s;
+  SchedulingService s;
   std::unique_ptr<IteratingTask> task;
   int observed = 0;
   task.reset(
@@ -195,7 +195,7 @@ TEST(SchedulerConcurrency, IteratorCompletionCanDestroyTask) {
 }
 
 TEST(SchedulerConcurrency, BorrowedCancellationWaitsForCallback) {
-  Scheduler s;
+  SchedulingService s;
   roo::binary_semaphore entered(0), release(0);
   std::atomic<bool> returned{false};
   Task task([&] {
@@ -218,7 +218,7 @@ TEST(SchedulerConcurrency, BorrowedCancellationWaitsForCallback) {
 namespace roo_scheduler {
 TEST(SchedulerConcurrency, ShutdownWaitsForClaimBeforeAdapterBodyStarts) {
   struct HeldTask : RepetitiveTask {
-    HeldTask(Scheduler& scheduler, int& calls)
+    HeldTask(SchedulingService& scheduler, int& calls)
         : RepetitiveTask(scheduler, roo_time::Seconds(1), [&] { ++calls; }) {}
     roo::binary_semaphore claimed{0}, release{0};
     void execute(ExecutionID id) override {
@@ -227,7 +227,7 @@ TEST(SchedulerConcurrency, ShutdownWaitsForClaimBeforeAdapterBodyStarts) {
       RepetitiveTask::execute(id);
     }
   };
-  Scheduler scheduler;
+  SchedulingService scheduler;
   int calls = 0;
   HeldTask task(scheduler, calls);
   task.startInstantly();
@@ -247,7 +247,7 @@ TEST(SchedulerConcurrency, ShutdownWaitsForClaimBeforeAdapterBodyStarts) {
 }
 
 TEST(SchedulerConcurrency, RetiredDestructorCanReenterAdapterControl) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   SingletonTask singleton(scheduler, [] {});
   int destroyed = 0;
   struct Reentrant : Executable {
@@ -275,7 +275,7 @@ TEST(SchedulerConcurrency, RetiredDestructorCanReenterAdapterControl) {
 
 namespace roo_scheduler {
 TEST(SchedulerConcurrency, StopAndCancelCannotUndoPermanentShutdown) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   RepetitiveTask repetitive(scheduler, roo_time::Seconds(1), [] {});
   EXPECT_TRUE(repetitive.shutdown());
   EXPECT_FALSE(repetitive.stop());
@@ -310,7 +310,7 @@ namespace roo_scheduler {
 TEST(SchedulerConcurrency, SchedulerDestructionKeepsSynchronizationAlive) {
   int retired = 0;
   struct Reentrant : Executable {
-    Reentrant(Scheduler& scheduler, int& retired)
+    Reentrant(SchedulingService& scheduler, int& retired)
         : scheduler(scheduler), retired(retired) {}
     ~Reentrant() override {
       EXPECT_TRUE(scheduler.empty());
@@ -319,11 +319,11 @@ TEST(SchedulerConcurrency, SchedulerDestructionKeepsSynchronizationAlive) {
       ++retired;
     }
     void execute(ExecutionID) override {}
-    Scheduler& scheduler;
+    SchedulingService& scheduler;
     int& retired;
   };
   {
-    Scheduler scheduler;
+    SchedulingService scheduler;
     scheduler.scheduleNow(
         std::unique_ptr<Executable>(new Reentrant(scheduler, retired)));
   }

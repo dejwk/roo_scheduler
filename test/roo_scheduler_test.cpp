@@ -12,14 +12,14 @@ namespace roo_scheduler {
 using namespace roo_time;
 
 struct TestTask : public Executable {
-  TestTask(std::vector<ExecutionID> &observed) : observed(observed) {}
+  TestTask(std::vector<ExecutionID>& observed) : observed(observed) {}
   void execute(ExecutionID id) { observed.push_back(id); }
-  std::vector<ExecutionID> &observed;
+  std::vector<ExecutionID>& observed;
 };
 
 TEST(Scheduler, Now) {
   int counter = 0;
-  Scheduler scheduler;
+  SchedulingService scheduler;
   Task task([&counter] { ++counter; });
   scheduler.scheduleNow(task);
   scheduler.executeEligibleTasks();
@@ -28,7 +28,7 @@ TEST(Scheduler, Now) {
 
 TEST(Scheduler, Now3x) {
   int counter = 0;
-  Scheduler scheduler;
+  SchedulingService scheduler;
   Task task([&counter] { ++counter; });
   scheduler.scheduleNow(task);
   scheduler.scheduleNow(task);
@@ -39,7 +39,7 @@ TEST(Scheduler, Now3x) {
 
 TEST(Scheduler, Repetitive) {
   int counter = 0;
-  Scheduler scheduler;
+  SchedulingService scheduler;
   RepetitiveTask task(scheduler, Millis(1200), [&counter] {
     ++counter;
     Delay(Millis(100));
@@ -70,7 +70,7 @@ TEST(Scheduler, Repetitive) {
 
 TEST(Scheduler, Periodic) {
   int counter = 0;
-  Scheduler scheduler;
+  SchedulingService scheduler;
   PeriodicTask task(scheduler, Millis(1200), [&counter] {
     ++counter;
     Delay(Millis(100));
@@ -92,7 +92,7 @@ TEST(Scheduler, Periodic) {
 }
 
 TEST(Scheduler, RepetitiveImmediateDestruction) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   int counter = 0;
   {
     RepetitiveTask task(scheduler, Millis(1200), [&counter] {
@@ -107,7 +107,7 @@ TEST(Scheduler, RepetitiveImmediateDestruction) {
 }
 
 TEST(Scheduler, PeriodicImmediateDestruction) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   int counter = 0;
   {
     PeriodicTask task(scheduler, Millis(1200), [&counter] {
@@ -122,7 +122,7 @@ TEST(Scheduler, PeriodicImmediateDestruction) {
 }
 
 TEST(Scheduler, SingletonImmediateDestruction) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   int counter = 0;
   {
     SingletonTask task(scheduler, [&counter] {
@@ -137,7 +137,7 @@ TEST(Scheduler, SingletonImmediateDestruction) {
 }
 
 TEST(Scheduler, SingletonNonImmediateDestruction) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   int counter = 0;
   SingletonTask task1(scheduler, [&counter] {
     ++counter;
@@ -157,7 +157,7 @@ TEST(Scheduler, SingletonNonImmediateDestruction) {
 }
 
 TEST(Scheduler, StableScheduleOrder) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
   TestTask test(observed);
@@ -177,7 +177,7 @@ TEST(Scheduler, StableScheduleOrder) {
 }
 
 TEST(Scheduler, PriorityNoEffectWhenNotBackedUp) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
   TestTask test(observed);
@@ -218,7 +218,7 @@ TEST(Scheduler, PriorityNoEffectWhenNotBackedUp) {
 }
 
 TEST(Scheduler, PriorityAppliedWhenBackedUp) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
   std::vector<ExecutionID> expected;
   TestTask test(observed);
@@ -248,7 +248,7 @@ TEST(Scheduler, PriorityAppliedWhenBackedUp) {
 }
 
 TEST(Scheduler, LargeRandomTest) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
 
   TestTask test(observed);
@@ -265,7 +265,7 @@ TEST(Scheduler, LargeRandomTest) {
     expected.push_back(Experiment{.micros = micros, .id = id});
   }
   std::sort(expected.begin(), expected.end(),
-            [](const Experiment &a, const Experiment &b) {
+            [](const Experiment& a, const Experiment& b) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
@@ -280,7 +280,7 @@ TEST(Scheduler, LargeRandomTest) {
 }
 
 TEST(Scheduler, LargeRandomCancellationTest) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
 
   TestTask test(observed);
@@ -305,11 +305,11 @@ TEST(Scheduler, LargeRandomCancellationTest) {
   }
   expected.erase(
       std::remove_if(expected.begin(), expected.end(),
-                     [](const Experiment &e) { return e.cancelled; }),
+                     [](const Experiment& e) { return e.cancelled; }),
       expected.end());
 
   std::sort(expected.begin(), expected.end(),
-            [](const Experiment &a, const Experiment &b) {
+            [](const Experiment& a, const Experiment& b) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
@@ -324,7 +324,7 @@ TEST(Scheduler, LargeRandomCancellationTest) {
 }
 
 TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
 
   TestTask test(observed);
@@ -355,11 +355,11 @@ TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
   }
   expected.erase(
       std::remove_if(expected.begin(), expected.end(),
-                     [](const Experiment &e) { return e.cancelled; }),
+                     [](const Experiment& e) { return e.cancelled; }),
       expected.end());
 
   std::sort(expected.begin(), expected.end(),
-            [](const Experiment &a, const Experiment &b) {
+            [](const Experiment& a, const Experiment& b) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
@@ -374,7 +374,7 @@ TEST(Scheduler, LargeRandomCancellationTestWithPruning) {
 }
 
 TEST(Scheduler, LargeRandomCancellationTestOwnedTasks) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
 
   struct Experiment {
@@ -398,11 +398,11 @@ TEST(Scheduler, LargeRandomCancellationTestOwnedTasks) {
   }
   expected.erase(
       std::remove_if(expected.begin(), expected.end(),
-                     [](const Experiment &e) { return e.cancelled; }),
+                     [](const Experiment& e) { return e.cancelled; }),
       expected.end());
 
   std::sort(expected.begin(), expected.end(),
-            [](const Experiment &a, const Experiment &b) {
+            [](const Experiment& a, const Experiment& b) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
@@ -417,7 +417,7 @@ TEST(Scheduler, LargeRandomCancellationTestOwnedTasks) {
 }
 
 TEST(Scheduler, LargeRandomCancellationTestOwnedTasksWithPruning) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
 
   struct Experiment {
@@ -447,11 +447,11 @@ TEST(Scheduler, LargeRandomCancellationTestOwnedTasksWithPruning) {
   }
   expected.erase(
       std::remove_if(expected.begin(), expected.end(),
-                     [](const Experiment &e) { return e.cancelled; }),
+                     [](const Experiment& e) { return e.cancelled; }),
       expected.end());
 
   std::sort(expected.begin(), expected.end(),
-            [](const Experiment &a, const Experiment &b) {
+            [](const Experiment& a, const Experiment& b) {
               return a.micros < b.micros ||
                      (a.micros == b.micros && a.id < b.id);
             });
@@ -466,7 +466,7 @@ TEST(Scheduler, LargeRandomCancellationTestOwnedTasksWithPruning) {
 }
 
 TEST(Scheduler, ScheduleOneOffTaskWithCallable) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::atomic<int> counter{0};
 
   // Schedule a one-off task using a lambda.
@@ -479,17 +479,17 @@ TEST(Scheduler, ScheduleOneOffTaskWithCallable) {
 }
 
 TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutable) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::atomic<int> counter{0};
 
   // Define a custom Executable.
   class MyTask : public Executable {
    public:
-    MyTask(std::atomic<int> &counter) : counter_(counter) {}
+    MyTask(std::atomic<int>& counter) : counter_(counter) {}
     void execute(ExecutionID) override { counter_++; }
 
    private:
-    std::atomic<int> &counter_;
+    std::atomic<int>& counter_;
   };
 
   // Schedule a one-off task using unique_ptr<Executable>.
@@ -502,7 +502,7 @@ TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutable) {
 }
 
 TEST(Scheduler, ScheduleOneOffTaskWithCallableAfterDelay) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::atomic<int> counter{0};
 
   // Schedule a one-off task with a delay.
@@ -519,16 +519,16 @@ TEST(Scheduler, ScheduleOneOffTaskWithCallableAfterDelay) {
 }
 
 TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutableAfterDelay) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::atomic<int> counter{0};
 
   class MyTask : public Executable {
    public:
-    MyTask(std::atomic<int> &counter) : counter_(counter) {}
+    MyTask(std::atomic<int>& counter) : counter_(counter) {}
     void execute(ExecutionID) override { counter_++; }
 
    private:
-    std::atomic<int> &counter_;
+    std::atomic<int>& counter_;
   };
 
   scheduler.scheduleAfter(Millis(10),
@@ -548,7 +548,7 @@ TEST(Scheduler, ScheduleOneOffTaskWithUniquePtrExecutableAfterDelay) {
 namespace roo_scheduler {
 TEST(SchedulerRegression, ReadyCancellationSurvivesQueueChanges) {
   for (int mode = 0; mode < 3; ++mode) {
-    Scheduler s;
+    SchedulingService s;
     int calls = 0;
     auto id = s.scheduleNow([&] { ++calls; });
     ExecutionID later = -1;
@@ -563,14 +563,14 @@ TEST(SchedulerRegression, ReadyCancellationSurvivesQueueChanges) {
 }
 
 TEST(SchedulerRegression, ReadyTasksCountAsPending) {
-  Scheduler s;
+  SchedulingService s;
   s.scheduleNow([] {});
   s.executeEligibleTasks(Priority::kMaximum);
   EXPECT_FALSE(s.empty());
 }
 
 TEST(SchedulerRegression, EarlierCutoffKeepsAdmittedTasksEligible) {
-  Scheduler s;
+  SchedulingService s;
   std::vector<int> observed;
   auto cutoff = Uptime::Now();
   s.scheduleOn(cutoff, [&] { observed.push_back(1); }, Priority::kBackground);
@@ -586,7 +586,7 @@ TEST(SchedulerRegression, EarlierCutoffKeepsAdmittedTasksEligible) {
 }
 
 TEST(SchedulerRegression, NestedDispatchCanAdvanceAdmissionCutoff) {
-  Scheduler s;
+  SchedulingService s;
   std::vector<int> observed;
   auto cutoff = Uptime::Now();
   s.scheduleOn(cutoff, [&] {
@@ -600,7 +600,7 @@ TEST(SchedulerRegression, NestedDispatchCanAdvanceAdmissionCutoff) {
 }
 
 TEST(SchedulerRegression, SingletonCancelRescheduleDestruction) {
-  Scheduler s;
+  SchedulingService s;
   {
     SingletonTask task(s, [] {});
     task.scheduleAfter(Seconds(1));
@@ -617,7 +617,7 @@ TEST(SchedulerRegression, IteratorWithoutCompletionCallback) {
   struct Finished : IteratingTask::Iterator {
     int64_t next() override { return -1; }
   } iterator;
-  Scheduler s;
+  SchedulingService s;
   IteratingTask task(s, iterator);
   task.start();
   s.executeEligibleTasks();
@@ -626,16 +626,16 @@ TEST(SchedulerRegression, IteratorWithoutCompletionCallback) {
 
 TEST(SchedulerRegression, OwnedDestructorCanReenterScheduler) {
   struct Reentrant : Executable {
-    Reentrant(Scheduler &s, int &count) : s(s), count(count) {}
+    Reentrant(SchedulingService& s, int& count) : s(s), count(count) {}
     ~Reentrant() override {
       s.scheduleNow([&count = count] { ++count; });
     }
     void execute(ExecutionID) override {}
-    Scheduler &s;
-    int &count;
+    SchedulingService& s;
+    int& count;
   };
   for (int mode = 0; mode < 3; ++mode) {
-    Scheduler s;
+    SchedulingService s;
     int count = 0;
     if (mode == 1) s.scheduleNow([] {});
     auto id =

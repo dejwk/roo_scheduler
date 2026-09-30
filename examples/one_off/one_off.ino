@@ -9,7 +9,7 @@
 using namespace roo_time;
 using namespace roo_scheduler;
 
-Scheduler scheduler;
+SchedulingService scheduler;
 
 void stateless_one_off_task() { Serial.printf("Stateless one-off\n"); }
 

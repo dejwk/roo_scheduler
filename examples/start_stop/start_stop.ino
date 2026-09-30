@@ -12,7 +12,7 @@
 using namespace roo_time;
 using namespace roo_scheduler;
 
-Scheduler scheduler;
+SchedulingService scheduler;
 
 RepetitiveTask tick(scheduler, Seconds(1),
                     [] { Serial.printf("Tick: %lu\n", millis() / 1000); });

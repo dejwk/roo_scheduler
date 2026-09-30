@@ -17,7 +17,7 @@ struct TestTask : public Executable {
 // Verifies an expired delay drains normal and higher priorities, leaving lower
 // priorities pending until they are explicitly requested.
 TEST(Scheduler, DelayWithNormalPriority) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
   TestTask test(observed);
 
@@ -44,7 +44,7 @@ TEST(Scheduler, DelayWithNormalPriority) {
 // Verifies an expired delay honors a heightened priority threshold and a later
 // background-priority drain executes all remaining tasks in priority order.
 TEST(Scheduler, DelayWithHeightenedPriority) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
   TestTask test(observed);
 
@@ -71,7 +71,7 @@ TEST(Scheduler, DelayWithHeightenedPriority) {
 // Verifies automatic time reaches the deadline and executes work due at that
 // deadline, including background tasks when the caller requests them.
 TEST(Scheduler, DelayUntilFutureDeadline) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   std::vector<ExecutionID> observed;
   TestTask test(observed);
 

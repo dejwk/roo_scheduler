@@ -11,7 +11,7 @@
 using namespace roo_time;
 using namespace roo_scheduler;
 
-Scheduler scheduler;
+SchedulingService scheduler;
 roo::thread scheduler_thread;
 
 // Note: the counter is incremented from the scheduler thread, and read from the

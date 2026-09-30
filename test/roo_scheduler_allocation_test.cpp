@@ -47,7 +47,7 @@ namespace roo_scheduler {
 using namespace roo_time;
 
 TEST(SchedulerAllocation, WarmBorrowedDispatchDoesNotAllocate) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   int calls = 0;
   Task task([&] { ++calls; });
   for (int i = 0; i < 8; ++i) scheduler.scheduleNow(task);
@@ -64,7 +64,7 @@ TEST(SchedulerAllocation, WarmBorrowedDispatchDoesNotAllocate) {
 }
 
 TEST(SchedulerAllocation, ImmediateOwnedRetirementDoesNotAllocate) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   auto id = scheduler.scheduleNow([] {});
   size_t observed;
   {
@@ -77,7 +77,7 @@ TEST(SchedulerAllocation, ImmediateOwnedRetirementDoesNotAllocate) {
 }
 
 TEST(SchedulerAllocation, PruningOwnedTasksDoesNotAllocate) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   scheduler.scheduleNow([] {});
   auto id = scheduler.scheduleNow([] {});
   scheduler.cancel(id);
@@ -92,7 +92,7 @@ TEST(SchedulerAllocation, PruningOwnedTasksDoesNotAllocate) {
 }
 
 TEST(SchedulerAllocation, SingletonDispatchDoesNotAllocateAfterWarmup) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   int calls = 0;
   SingletonTask task(scheduler, [&] { ++calls; });
   task.scheduleNow();
@@ -112,7 +112,7 @@ TEST(SchedulerAllocation, IteratorDispatchDoesNotAllocateAfterWarmup) {
   struct Finished : IteratingTask::Iterator {
     int64_t next() override { return -1; }
   } iterator;
-  Scheduler scheduler;
+  SchedulingService scheduler;
   int calls = 0;
   IteratingTask task(scheduler, iterator, [&] { ++calls; });
   task.start();
@@ -131,7 +131,7 @@ TEST(SchedulerAllocation, IteratorDispatchDoesNotAllocateAfterWarmup) {
 
 namespace roo_scheduler {
 TEST(SchedulerAllocation, SingletonReplacementReusesPendingQueueSlot) {
-  Scheduler scheduler;
+  SchedulingService scheduler;
   SingletonTask task(scheduler, [] {});
   task.scheduleAfter(roo_time::Seconds(1));
   size_t observed;

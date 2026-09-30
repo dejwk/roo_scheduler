@@ -9,6 +9,57 @@ Uses vector-backed heaps for queued work and ready work:
 
 The tasks can be defined as function pointers, but also as inline lambdas, or generally as arbitrary callables, so it is convenient and idiomatic to make them stateful.
 
+## Scheduling interface and migration
+
+Scheduling work and deciding when to execute it are separate responsibilities.
+For example, a widget may need to schedule a timeout, while the application's
+main loop controls when callbacks run.
+
+`SchedulingService` owns the queues and provides the dispatch methods that run
+callbacks. `SchedulerClient` is its restricted base interface: it lets consumers
+schedule and cancel work without giving them access to dispatch or waiting
+methods. A consumer can accept `SchedulerClient&` to express that limited need.
+The reference borrows the application's existing scheduler.
+
+Because `SchedulingService` derives from `SchedulerClient`, you can pass the
+service directly to consumers and task adapters that accept `SchedulerClient&`:
+
+```cpp
+roo_scheduler::SchedulingService scheduler;
+roo_scheduler::SingletonTask deferred(scheduler, [] { /* Deferred work. */ });
+
+deferred.scheduleNow();
+scheduler.executeEligibleTasks();
+```
+
+No separate client variable is needed. All task adapters accept the restricted
+base reference. `SchedulerClient` exposes the `scheduleOn`, `scheduleAfter`,
+`scheduleNow` overloads and `cancel`; dispatch, waiting, pruning, and queue-wide
+queries remain on `SchedulingService`. This separation adds no queue, pointer
+member, or virtual dispatch.
+
+The service must outlive all borrowed references and adapters. Clients cannot
+be copied, constructed independently, or deleted through the base interface.
+
+This is the compatibility phase of the interface migration. The owning class is
+`SchedulingService`; `Scheduler` remains a deprecated alias for it. Ordinary
+existing owner declarations and adapter construction remain source-compatible,
+with deprecation warnings for the old name. Use `SchedulingService` for owners;
+borrowers can accept `SchedulerClient&` when they do not need dispatch access.
+Code that forward-declares `class Scheduler`
+must instead declare `class SchedulingService` or include `roo_scheduler.h`.
+A later breaking release can reclaim `Scheduler` for the restricted base while
+retaining `SchedulerClient` as an alias. Rebuild dependent binaries: this is not
+an ABI-compatible change, and explicitly typed pointers to inherited members
+may also need updating.
+
+The restricted interface does not establish a UI thread or forbid nested
+dispatch through a separately retained service reference. Applications relying
+on deferral until the current callback returns must dispatch on one thread and
+prohibit nested dispatch. Cancellation can destroy owned callables synchronously;
+objects captured by deferred work still need explicit lifetime management.
+Adapter shutdown retains its existing waiting behavior, described below.
+
 ## Dispatch cutoffs
 
 `executeEligibleTasksUpTo(cutoff)` admits queued tasks due by
@@ -57,7 +108,7 @@ waiting on itself; it still disables future scheduling. Do not interpret false
 as permission to destroy callback-owned state. No other caller may access the
 object while it is being destroyed. The scheduler must outlive its adapters.
 
-For borrowed `Executable` objects, `Scheduler::cancelAndWait(task)` cancels all
+For borrowed `Executable` objects, `SchedulingService::cancelAndWait(task)` cancels all
 pending executions of that object and waits for claimed executions. Unlike an
 adapter's shutdown it cannot disable application rescheduling: callers must do
 that first. It returns false on self-wait just like adapter shutdown.
