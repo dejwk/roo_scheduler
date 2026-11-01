@@ -57,9 +57,13 @@ cc_test(
 
 cc_test(
     name = "roo_scheduler_concurrency_test",
-    srcs = ["test/roo_scheduler_concurrency_test.cpp"],
     size = "small",
+    srcs = ["test/roo_scheduler_concurrency_test.cpp"],
     linkstatic = 1,
+    target_compatible_with = select({
+        "@roo_testing//roo_testing/platforms:is_bare_metal": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
     deps = [
         ":roo_scheduler",
         "@googletest//:gtest",
@@ -69,8 +73,8 @@ cc_test(
 
 cc_test(
     name = "roo_scheduler_allocation_test",
-    srcs = ["test/roo_scheduler_allocation_test.cpp"],
     size = "small",
+    srcs = ["test/roo_scheduler_allocation_test.cpp"],
     linkstatic = 1,
     deps = [
         ":roo_scheduler",
@@ -82,21 +86,48 @@ cc_test(
 
 cc_library(
     name = "roo_scheduler_without_priority",
-    srcs = ["src/roo_scheduler.cpp", "src/roo_scheduler.h"],
-    includes = ["src"],
+    srcs = [
+        "src/roo_scheduler.cpp",
+        "src/roo_scheduler.h",
+    ],
     defines = ["ROO_SCHEDULER_IGNORE_PRIORITY=1"],
-    deps = ["@roo_collections", "@roo_threads", "@roo_time"],
+    includes = ["src"],
+    deps = [
+        "@roo_collections",
+        "@roo_threads",
+        "@roo_time",
+    ],
 )
 
 cc_test(
     name = "roo_scheduler_without_priority_test",
-    srcs = ["test/roo_scheduler_allocation_test.cpp", "test/scheduler_client_test.cpp"],
     size = "small",
+    srcs = [
+        "test/roo_scheduler_allocation_test.cpp",
+        "test/scheduler_client_test.cpp",
+    ],
     linkstatic = 1,
     deps = [
         ":roo_scheduler_without_priority",
         "@googletest//:gtest",
         "@roo_testing//:arduino_gtest_main",
         "@roo_testing//roo_testing/system:manual_time_mode",
+    ],
+)
+
+cc_test(
+    name = "bare_metal_dispatch_test",
+    size = "small",
+    srcs = ["test/bare_metal_dispatch_test.cpp"],
+    linkstatic = True,
+    target_compatible_with = [
+        "@roo_testing//roo_testing/platforms:bare_metal",
+        "@roo_testing//roo_testing/platforms:arduino",
+    ],
+    deps = [
+        ":roo_scheduler",
+        "@roo_testing//:arduino_gtest_main",
+        "@roo_testing//roo_testing/system:manual_time_mode",
+        "@roo_testing//roo_testing/system:timer",
     ],
 )

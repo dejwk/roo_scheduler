@@ -446,7 +446,13 @@ void SchedulingService::run() {
       roo_time::Duration delay = getNearestExecutionDelayWithLockHeld();
       if (delay > roo_time::Duration()) {
         if (delay == roo_time::Duration::Max()) {
+#ifdef ROO_THREADS_SINGLETHREADED
+          // No producer thread can wake an indefinite wait. Yield time to the
+          // platform's cooperative event pump, then check for new work.
+          changed_.wait_for(lock, roo_time::Millis(1));
+#else
           changed_.wait(lock);
+#endif
         } else {
           changed_.wait_for(lock, delay);
         }

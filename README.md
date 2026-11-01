@@ -156,3 +156,13 @@ Arduino examples are native runnable targets in their source packages. For
 example:
 
     bazel run //examples/simple:simple
+
+### Bare-metal Pico emulation
+
+With coordinated local roo_testing, roo_threads and roo_time overrides, the
+cooperative scheduler uses the existing single-threaded locks and timed waits.
+Dispatch, cancellation, allocation and delay tests run on native Arduino-Pico.
+An idle `run()` polls through a 1 ms platform delay so cooperative clock events
+can submit work; it does not require an indefinite condition-variable wait.
+The concurrency suite is excluded on bare-metal runtimes. Native thread
+creation and cross-thread shutdown remain outside that runtime's support.

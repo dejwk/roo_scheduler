@@ -538,6 +538,8 @@ class SchedulingService : public SchedulerClient {
                   Priority min_priority = Priority::kNormal);
 
   /// Runs scheduler event loop forever.
+  /// Single-threaded backends poll an idle queue at 1 ms intervals, allowing
+  /// the platform's delay/event pump to submit work without a producer thread.
   void run();
 };
 
