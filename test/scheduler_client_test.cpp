@@ -12,14 +12,14 @@ template <typename...>
 using Void = void;
 
 // Detect public access, including accidentally inherited dispatch methods.
-#define CHECK_SERVICE_ONLY(method, ...)                                      \
-  template <typename T, typename = void>                                     \
-  struct Has_##method : std::false_type {};                                  \
-  template <typename T>                                                      \
-  struct Has_##                                                              \
-      method<T, Void<decltype(std::declval<T&>().method(__VA_ARGS__))>>      \
-      : std::true_type {};                                                   \
-  static_assert(!Has_##method<SchedulerClient>::value, "Restricted client"); \
+#define CHECK_SERVICE_ONLY(method, ...)                                       \
+  template <typename T, typename = void>                                      \
+  struct Has_##method : std::false_type {};                                   \
+  template <typename T>                                                       \
+  struct Has_##method<T,                                                      \
+                      Void<decltype(std::declval<T&>().method(__VA_ARGS__))>> \
+      : std::true_type {};                                                    \
+  static_assert(!Has_##method<Scheduler>::value, "Restricted client");        \
   static_assert(Has_##method<SchedulingService>::value, "Owner compatibility")
 
 CHECK_SERVICE_ONLY(run);
@@ -38,39 +38,42 @@ CHECK_SERVICE_ONLY(getNearestExecutionDelay);
 // Exercise the deprecated spelling without hiding warnings in other tests.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-static_assert(std::is_same<Scheduler, SchedulingService>::value,
-              "Existing owner name remains valid");
+static_assert(std::is_same<SchedulerClient, Scheduler>::value,
+              "Existing client name remains valid");
 
-// Verifies legacy owners still construct adapters and drive dispatch.
-TEST(SchedulerClient, DeprecatedOwnerCompatibility) {
-  Scheduler scheduler;
+// Verifies the deprecated client alias still schedules work and constructs
+// adapters.
+TEST(Scheduler, DeprecatedClientCompatibility) {
+  SchedulingService scheduler;
+  SchedulerClient& client = scheduler;
   int calls = 0;
-  SingletonTask task(scheduler, [&] { ++calls; });
+  SingletonTask task(client, [&] { ++calls; });
+  client.scheduleNow([&] { ++calls; });
   task.scheduleNow();
   scheduler.executeEligibleTasks();
-  EXPECT_EQ(1, calls);
+  EXPECT_EQ(2, calls);
 }
 #pragma GCC diagnostic pop
 
-static_assert(std::is_convertible<SchedulingService&, SchedulerClient&>::value,
+static_assert(std::is_convertible<SchedulingService&, Scheduler&>::value,
               "Services provide client references");
-static_assert(!std::is_default_constructible<SchedulerClient>::value,
+static_assert(!std::is_default_constructible<Scheduler>::value,
               "Clients cannot be constructed independently");
-static_assert(!std::is_destructible<SchedulerClient>::value,
+static_assert(!std::is_destructible<Scheduler>::value,
               "Clients cannot be deleted through the base interface");
 static_assert(!std::is_copy_constructible<SchedulingService>::value,
               "Services cannot be copied");
 static_assert(!std::is_move_constructible<SchedulingService>::value,
               "Services cannot be moved while borrowed");
-static_assert(!std::is_polymorphic<SchedulerClient>::value,
+static_assert(!std::is_polymorphic<Scheduler>::value,
               "The restricted interface needs no virtual dispatch");
-static_assert(sizeof(SchedulingService) == sizeof(SchedulerClient),
+static_assert(sizeof(SchedulingService) == sizeof(Scheduler),
               "The owner adds no per-instance storage");
 
 // Verifies all submission forms share the owner's queue and remain deferred.
-TEST(SchedulerClient, SubmitsBorrowedOwnedAndCallableWork) {
+TEST(Scheduler, SubmitsBorrowedOwnedAndCallableWork) {
   SchedulingService scheduler;
-  SchedulerClient& client = scheduler;
+  Scheduler& client = scheduler;
   int calls = 0;
   Task borrowed([&] { ++calls; });
   client.scheduleNow(borrowed);
@@ -87,9 +90,9 @@ TEST(SchedulerClient, SubmitsBorrowedOwnedAndCallableWork) {
 
 // Verifies cancellation through a client suppresses pending execution and
 // owned tasks are eventually destroyed by the scheduler.
-TEST(SchedulerClient, CancelsOwnedWork) {
+TEST(Scheduler, CancelsOwnedWork) {
   SchedulingService scheduler;
-  SchedulerClient& client = scheduler;
+  Scheduler& client = scheduler;
   int calls = 0;
   int destroyed = 0;
   struct Owned : Executable {
@@ -108,9 +111,9 @@ TEST(SchedulerClient, CancelsOwnedWork) {
 }
 
 // Verifies callbacks can submit work without dispatching it on their own stack.
-TEST(SchedulerClient, DefersSubmissionFromCallback) {
+TEST(Scheduler, DefersSubmissionFromCallback) {
   SchedulingService scheduler;
-  SchedulerClient& client = scheduler;
+  Scheduler& client = scheduler;
   bool returned = false;
   bool executed = false;
   client.scheduleNow([&] {
@@ -129,9 +132,9 @@ TEST(SchedulerClient, DefersSubmissionFromCallback) {
 // Verifies every adapter accepts the restricted base, including replacement,
 // repeated execution and permanent shutdown through its private lifecycle
 // hooks.
-TEST(SchedulerClient, SupportsEveryAdapter) {
+TEST(Scheduler, SupportsEveryAdapter) {
   SchedulingService scheduler;
-  SchedulerClient& client = scheduler;
+  Scheduler& client = scheduler;
   int singleton_calls = 0;
   int repetitive_calls = 0;
   int periodic_calls = 0;

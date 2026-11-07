@@ -16,13 +16,13 @@ For example, a widget may need to schedule a timeout, while the application's
 main loop controls when callbacks run.
 
 `SchedulingService` owns the queues and provides the dispatch methods that run
-callbacks. `SchedulerClient` is its restricted base interface: it lets consumers
+callbacks. `Scheduler` is its restricted base interface: it lets consumers
 schedule and cancel work without giving them access to dispatch or waiting
-methods. A consumer can accept `SchedulerClient&` to express that limited need.
+methods. A consumer can accept `Scheduler&` to express that limited need.
 The reference borrows the application's existing scheduler.
 
-Because `SchedulingService` derives from `SchedulerClient`, you can pass the
-service directly to consumers and task adapters that accept `SchedulerClient&`:
+Because `SchedulingService` derives from `Scheduler`, you can pass the
+service directly to consumers and task adapters that accept `Scheduler&`:
 
 ```cpp
 roo_scheduler::SchedulingService scheduler;
@@ -33,7 +33,7 @@ scheduler.executeEligibleTasks();
 ```
 
 No separate client variable is needed. All task adapters accept the restricted
-base reference. `SchedulerClient` exposes the `scheduleOn`, `scheduleAfter`,
+base reference. `Scheduler` exposes the `scheduleOn`, `scheduleAfter`,
 `scheduleNow` overloads and `cancel`; dispatch, waiting, pruning, and queue-wide
 queries remain on `SchedulingService`. This separation adds no queue, pointer
 member, or virtual dispatch.
@@ -41,17 +41,12 @@ member, or virtual dispatch.
 The service must outlive all borrowed references and adapters. Clients cannot
 be copied, constructed independently, or deleted through the base interface.
 
-This is the compatibility phase of the interface migration. The owning class is
-`SchedulingService`; `Scheduler` remains a deprecated alias for it. Ordinary
-existing owner declarations and adapter construction remain source-compatible,
-with deprecation warnings for the old name. Use `SchedulingService` for owners;
-borrowers can accept `SchedulerClient&` when they do not need dispatch access.
-Code that forward-declares `class Scheduler`
-must instead declare `class SchedulingService` or include `roo_scheduler.h`.
-A later breaking release can reclaim `Scheduler` for the restricted base while
-retaining `SchedulerClient` as an alias. Rebuild dependent binaries: this is not
-an ABI-compatible change, and explicitly typed pointers to inherited members
-may also need updating.
+Use `SchedulingService` for ownership and dispatch, and `Scheduler&` for
+borrowers that only need scheduling and cancellation. `SchedulerClient` remains
+a deprecated alias for `Scheduler`. The former owning `Scheduler` alias has been
+removed: migrate owner declarations and forward declarations to
+`SchedulingService`. Rebuild dependent binaries: this is not an ABI-compatible
+change, and explicitly typed pointers to inherited members may also need updating.
 
 The restricted interface does not establish a UI thread or forbid nested
 dispatch through a separately retained service reference. Applications relying

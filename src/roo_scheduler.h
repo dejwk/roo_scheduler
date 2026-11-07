@@ -100,7 +100,7 @@ class Executable {
   virtual void execute(ExecutionID id) = 0;
 
  private:
-  friend class SchedulerClient;
+  friend class Scheduler;
   // Used only after the scheduler removes an owned task from its queues.
   Executable* retired_next_ = nullptr;
 };
@@ -113,7 +113,7 @@ class Executable {
 /// callback completion. Another thread may already be dispatching work, and
 /// cancellation may synchronously destroy owned tasks outside scheduler locks.
 /// Adapters retain their documented shutdown and lifetime requirements.
-class SchedulerClient {
+class Scheduler {
  public:
   /// Schedules execution no earlier than `when`.
   ///
@@ -209,14 +209,14 @@ class SchedulerClient {
   void cancel(ExecutionID);
 
  protected:
-  SchedulerClient();
-  ~SchedulerClient();
+  Scheduler();
+  ~Scheduler();
 
  private:
-  SchedulerClient(const SchedulerClient&) = delete;
-  SchedulerClient& operator=(const SchedulerClient&) = delete;
-  SchedulerClient(SchedulerClient&&) = delete;
-  SchedulerClient& operator=(SchedulerClient&&) = delete;
+  Scheduler(const Scheduler&) = delete;
+  Scheduler& operator=(const Scheduler&) = delete;
+  Scheduler(Scheduler&&) = delete;
+  Scheduler& operator=(Scheduler&&) = delete;
 
   friend class SchedulingService;
   friend class RepetitiveTask;
@@ -226,9 +226,9 @@ class SchedulerClient {
   bool cancelAndWait(Executable& task);
 
   struct InFlight {
-    explicit InFlight(SchedulerClient& scheduler) : scheduler(scheduler) {}
+    explicit InFlight(Scheduler& scheduler) : scheduler(scheduler) {}
     ~InFlight();
-    SchedulerClient& scheduler;
+    Scheduler& scheduler;
     Executable* task = nullptr;
 #ifndef ROO_THREADS_SINGLETHREADED
     roo::thread::id thread;
@@ -447,7 +447,7 @@ class SchedulerClient {
 /// Callbacks and canceled task destructors run without the scheduler mutex.
 /// Stop dispatch and all producers before destroying the scheduler. The
 /// scheduler must outlive every adapter that refers to it.
-class SchedulingService : public SchedulerClient {
+class SchedulingService : public Scheduler {
  public:
   /// Creates an empty scheduling service.
   SchedulingService() = default;
@@ -508,7 +508,7 @@ class SchedulingService : public SchedulerClient {
   /// waiting if this thread is currently dispatching the task (including an
   /// outer callback during nested dispatch). In that case it is not quiescent.
   bool cancelAndWait(Executable& task) {
-    return SchedulerClient::cancelAndWait(task);
+    return Scheduler::cancelAndWait(task);
   }
 
   /// Removes canceled executions from the queue.
@@ -543,10 +543,9 @@ class SchedulingService : public SchedulerClient {
   void run();
 };
 
-/// Compatibility alias for the owning scheduling service.
-using Scheduler
-    [[deprecated("Use SchedulingService for ownership and dispatch")]] =
-        SchedulingService;
+/// Compatibility alias for the restricted scheduling interface.
+using SchedulerClient
+    [[deprecated("Use Scheduler for scheduling and cancellation")]] = Scheduler;
 
 /// Convenience adapter for one-time execution of an arbitrary callable.
 class Task : public Executable {
@@ -566,13 +565,13 @@ class Task : public Executable {
 /// destroying state referenced by a callback, and keep the scheduler alive.
 class RepetitiveTask : public Executable {
  public:
-  RepetitiveTask(SchedulerClient& scheduler, roo_time::Duration delay,
+  RepetitiveTask(Scheduler& scheduler, roo_time::Duration delay,
                  std::function<void()> task,
                  Priority priority = Priority::kNormal);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `RepetitiveTask(scheduler, delay, task, priority)`.
-  RepetitiveTask(SchedulerClient& scheduler, std::function<void()> task,
+  RepetitiveTask(Scheduler& scheduler, std::function<void()> task,
                  roo_time::Duration delay,
                  Priority priority = Priority::kNormal)
       : RepetitiveTask(scheduler, delay, std::move(task), priority) {}
@@ -615,7 +614,7 @@ class RepetitiveTask : public Executable {
   ~RepetitiveTask();
 
  private:
-  SchedulerClient& scheduler_;
+  Scheduler& scheduler_;
   std::function<void()> task_;
   mutable roo::mutex mutex_;
   // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
@@ -630,13 +629,13 @@ class RepetitiveTask : public Executable {
 /// Shares RepetitiveTask's threading and lifetime contract.
 class PeriodicTask : public Executable {
  public:
-  PeriodicTask(SchedulerClient& scheduler, roo_time::Duration period,
+  PeriodicTask(Scheduler& scheduler, roo_time::Duration period,
                std::function<void()> task,
                Priority priority = Priority::kNormal);
 
 #ifndef ROO_SCHEDULER_NO_DEPRECATED
   /// @deprecated Use `PeriodicTask(scheduler, period, task, priority)`.
-  PeriodicTask(SchedulerClient& scheduler, std::function<void()> task,
+  PeriodicTask(Scheduler& scheduler, std::function<void()> task,
                roo_time::Duration period, Priority priority = Priority::kNormal)
       : PeriodicTask(scheduler, period, std::move(task), priority) {}
 #endif
@@ -665,7 +664,7 @@ class PeriodicTask : public Executable {
   ~PeriodicTask();
 
  private:
-  SchedulerClient& scheduler_;
+  Scheduler& scheduler_;
   std::function<void()> task_;
   mutable roo::mutex mutex_;
   // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
@@ -682,7 +681,7 @@ class PeriodicTask : public Executable {
 /// alive until the callback returns. Use shutdown() before owner teardown.
 class SingletonTask : public Executable {
  public:
-  SingletonTask(SchedulerClient& scheduler, std::function<void()> task);
+  SingletonTask(Scheduler& scheduler, std::function<void()> task);
 
   bool is_scheduled() const;
 
@@ -718,7 +717,7 @@ class SingletonTask : public Executable {
   ~SingletonTask();
 
  private:
-  SchedulerClient& scheduler_;
+  Scheduler& scheduler_;
   std::shared_ptr<std::function<void()>> task_;
   mutable roo::mutex mutex_;
   // Nonnegative: active execution; -1: inactive; -2: permanently shut down.
@@ -736,7 +735,7 @@ class IteratingTask : public Executable {
     virtual int64_t next() = 0;
   };
 
-  IteratingTask(SchedulerClient& scheduler, Iterator& iterator,
+  IteratingTask(Scheduler& scheduler, Iterator& iterator,
                 std::function<void()> done_cb = std::function<void()>());
 
   bool start(roo_time::Uptime when = roo_time::Uptime::Now());
@@ -757,7 +756,7 @@ class IteratingTask : public Executable {
   ~IteratingTask();
 
  private:
-  SchedulerClient& scheduler_;
+  Scheduler& scheduler_;
   Iterator& itr_;
   mutable roo::mutex mutex_;
   // Nonnegative: active execution; -1: inactive; -2: permanently shut down.

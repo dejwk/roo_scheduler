@@ -12,10 +12,9 @@ constexpr ExecutionID kInactive = -1;
 constexpr ExecutionID kShutdown = -2;
 }  // namespace
 
-SchedulerClient::SchedulerClient()
-    : queue_(), next_execution_id_(0), canceled_(0) {}
+Scheduler::Scheduler() : queue_(), next_execution_id_(0), canceled_(0) {}
 
-SchedulerClient::~SchedulerClient() {
+Scheduler::~Scheduler() {
   // Owned destructors may call back into the scheduler. Retire all tasks while
   // the mutex and queues are still alive, including work submitted by those
   // destructors. External producers and dispatch must already have stopped.
@@ -39,56 +38,55 @@ SchedulerClient::~SchedulerClient() {
   }
 }
 
-ExecutionID SchedulerClient::scheduleOn(roo_time::Uptime when, Executable& task,
-                                        Priority priority) {
+ExecutionID Scheduler::scheduleOn(roo_time::Uptime when, Executable& task,
+                                  Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
   changed_.notify_all();
   return push(when, &task, false, priority);
 }
 
-ExecutionID SchedulerClient::scheduleOn(roo_time::Uptime when,
-                                        std::unique_ptr<Executable> task,
-                                        Priority priority) {
+ExecutionID Scheduler::scheduleOn(roo_time::Uptime when,
+                                  std::unique_ptr<Executable> task,
+                                  Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
   changed_.notify_all();
   return push(when, task.release(), true, priority);
 }
 
-ExecutionID SchedulerClient::scheduleOn(roo_time::Uptime when,
-                                        std::function<void()> task,
-                                        Priority priority) {
+ExecutionID Scheduler::scheduleOn(roo_time::Uptime when,
+                                  std::function<void()> task,
+                                  Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
   changed_.notify_all();
   return push(when, new Task(std::move(task)), true, priority);
 }
 
-ExecutionID SchedulerClient::scheduleAfter(roo_time::Duration delay,
-                                           Executable& task,
-                                           Priority priority) {
+ExecutionID Scheduler::scheduleAfter(roo_time::Duration delay, Executable& task,
+                                     Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
   changed_.notify_all();
   return push(roo_time::Uptime::Now() + delay, &task, false, priority);
 }
 
-ExecutionID SchedulerClient::scheduleAfter(roo_time::Duration delay,
-                                           std::unique_ptr<Executable> task,
-                                           Priority priority) {
+ExecutionID Scheduler::scheduleAfter(roo_time::Duration delay,
+                                     std::unique_ptr<Executable> task,
+                                     Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
   changed_.notify_all();
   return push(roo_time::Uptime::Now() + delay, task.release(), true, priority);
 }
 
-ExecutionID SchedulerClient::scheduleAfter(roo_time::Duration delay,
-                                           std::function<void()> task,
-                                           Priority priority) {
+ExecutionID Scheduler::scheduleAfter(roo_time::Duration delay,
+                                     std::function<void()> task,
+                                     Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
   changed_.notify_all();
   return push(roo_time::Uptime::Now() + delay, new Task(std::move(task)), true,
               priority);
 }
 
-ExecutionID SchedulerClient::push(roo_time::Uptime when, Executable* task,
-                                  bool owns_task, Priority priority) {
+ExecutionID Scheduler::push(roo_time::Uptime when, Executable* task,
+                            bool owns_task, Priority priority) {
   ExecutionID id = next_execution_id_;
   // Reserve negative IDs without overflowing signed arithmetic.
   next_execution_id_ = (static_cast<uint32_t>(id) + 1) & 0x7FFFFFFF;
@@ -97,7 +95,7 @@ ExecutionID SchedulerClient::push(roo_time::Uptime when, Executable* task,
   return id;
 }
 
-SchedulerClient::RetiredTasks::~RetiredTasks() {
+Scheduler::RetiredTasks::~RetiredTasks() {
   while (head_ != nullptr) {
     Executable* task = head_;
     head_ = task->retired_next_;
@@ -105,7 +103,7 @@ SchedulerClient::RetiredTasks::~RetiredTasks() {
   }
 }
 
-void SchedulerClient::RetiredTasks::add(Entry&& entry) {
+void Scheduler::RetiredTasks::add(Entry&& entry) {
   Executable* task = entry.releaseOwnedTask();
   if (task == nullptr) return;
   task->retired_next_ = head_;
@@ -113,7 +111,7 @@ void SchedulerClient::RetiredTasks::add(Entry&& entry) {
 }
 
 // The queue must be non-empty.
-void SchedulerClient::pop(RetiredTasks& retired) {
+void Scheduler::pop(RetiredTasks& retired) {
   std::pop_heap(queue_.begin(), queue_.end(), TimeComparator());
   if (queue_.back().owns_task()) retired.add(std::move(queue_.back()));
   queue_.pop_back();
@@ -168,7 +166,7 @@ roo_time::Uptime SchedulingService::getNearestExecutionTime() const {
   return getNearestExecutionTimeWithLockHeld();
 }
 
-roo_time::Uptime SchedulerClient::getNearestExecutionTimeWithLockHeld() const {
+roo_time::Uptime Scheduler::getNearestExecutionTimeWithLockHeld() const {
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
   if (!ready_.empty()) {
     return roo_time::Uptime::Now();
@@ -185,8 +183,7 @@ roo_time::Duration SchedulingService::getNearestExecutionDelay() const {
   return getNearestExecutionDelayWithLockHeld();
 }
 
-roo_time::Duration SchedulerClient::getNearestExecutionDelayWithLockHeld()
-    const {
+roo_time::Duration Scheduler::getNearestExecutionDelayWithLockHeld() const {
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
   if (!ready_.empty()) {
     return roo_time::Duration();
@@ -201,8 +198,8 @@ roo_time::Duration SchedulerClient::getNearestExecutionDelayWithLockHeld()
 }
 
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
-bool SchedulerClient::runOneEligibleExecution(roo_time::Uptime deadline,
-                                              Priority min_priority) {
+bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
+                                        Priority min_priority) {
   roo_time::Uptime now = roo_time::Uptime::Now();
   if (deadline > now) deadline = now;
   RetiredTasks retired;
@@ -256,8 +253,8 @@ bool SchedulerClient::runOneEligibleExecution(roo_time::Uptime deadline,
   return true;
 }
 #else
-bool SchedulerClient::runOneEligibleExecution(roo_time::Uptime deadline,
-                                              Priority min_priority) {
+bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
+                                        Priority min_priority) {
   roo_time::Uptime now = roo_time::Uptime::Now();
   if (deadline > now) deadline = now;
   RetiredTasks retired;
@@ -309,7 +306,7 @@ bool SchedulerClient::runOneEligibleExecution(roo_time::Uptime deadline,
 }
 #endif
 
-void SchedulerClient::cancel(ExecutionID id) {
+void Scheduler::cancel(ExecutionID id) {
   RetiredTasks retired;
   roo::lock_guard<roo::mutex> lock(mutex_);
   if (queue_.empty()
@@ -327,9 +324,9 @@ void SchedulerClient::cancel(ExecutionID id) {
   canceled_.insert(id);
 }
 
-ExecutionID SchedulerClient::replace(ExecutionID previous,
-                                     roo_time::Uptime when, Executable& task,
-                                     Priority priority, RetiredTasks& retired) {
+ExecutionID Scheduler::replace(ExecutionID previous, roo_time::Uptime when,
+                               Executable& task, Priority priority,
+                               RetiredTasks& retired) {
   roo::lock_guard<roo::mutex> lock(mutex_);
   if (previous >= 0) {
     if (!queue_.empty() && queue_.front().id() == previous) {
@@ -374,7 +371,7 @@ void SchedulingService::pruneCanceled() {
   canceled_.clear();
 }
 
-SchedulerClient::InFlight::~InFlight() {
+Scheduler::InFlight::~InFlight() {
   if (task == nullptr) return;
   roo::lock_guard<roo::mutex> lock(scheduler.mutex_);
   assert(scheduler.in_flight_ == this);
@@ -382,7 +379,7 @@ SchedulerClient::InFlight::~InFlight() {
   scheduler.changed_.notify_all();
 }
 
-bool SchedulerClient::cancelAndWait(Executable& task) {
+bool Scheduler::cancelAndWait(Executable& task) {
   RetiredTasks retired;
   roo::unique_lock<roo::mutex> lock(mutex_);
   auto remove = [&](std::vector<Entry>& entries, auto comparator) {
@@ -461,8 +458,7 @@ void SchedulingService::run() {
   }
 }
 
-RepetitiveTask::RepetitiveTask(SchedulerClient& scheduler,
-                               roo_time::Duration delay,
+RepetitiveTask::RepetitiveTask(Scheduler& scheduler, roo_time::Duration delay,
                                std::function<void()> task, Priority priority)
     : scheduler_(scheduler),
       task_(std::move(task)),
@@ -501,8 +497,7 @@ void RepetitiveTask::execute(ExecutionID id) {
   id_ = scheduler_.scheduleAfter(delay_, *this, priority_);
 }
 
-PeriodicTask::PeriodicTask(SchedulerClient& scheduler,
-                           roo_time::Duration period,
+PeriodicTask::PeriodicTask(Scheduler& scheduler, roo_time::Duration period,
                            std::function<void()> task, Priority priority)
     : scheduler_(scheduler),
       task_(std::move(task)),
@@ -543,8 +538,7 @@ void PeriodicTask::execute(ExecutionID id) {
   id_ = scheduler_.scheduleOn(next_, *this, priority_);
 }
 
-SingletonTask::SingletonTask(SchedulerClient& scheduler,
-                             std::function<void()> task)
+SingletonTask::SingletonTask(Scheduler& scheduler, std::function<void()> task)
     : scheduler_(scheduler),
       task_(std::make_shared<std::function<void()>>(std::move(task))),
       id_(kInactive) {}
@@ -565,7 +559,7 @@ void SingletonTask::cancel() {
 }
 
 void SingletonTask::scheduleOn(roo_time::Uptime when, Priority priority) {
-  SchedulerClient::RetiredTasks retired;
+  Scheduler::RetiredTasks retired;
   roo::lock_guard<roo::mutex> lock(mutex_);
   if (id_ == kShutdown) return;
   id_ = scheduler_.replace(id_, when, *this, priority, retired);
@@ -591,7 +585,7 @@ void SingletonTask::execute(ExecutionID id) {
   (*task)();
 }
 
-IteratingTask::IteratingTask(SchedulerClient& scheduler, Iterator& iterator,
+IteratingTask::IteratingTask(Scheduler& scheduler, Iterator& iterator,
                              std::function<void()> done_cb)
     : scheduler_(scheduler),
       itr_(iterator),
