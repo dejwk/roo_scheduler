@@ -3,6 +3,7 @@
 
 #include "gtest/gtest.h"
 #include "roo_scheduler.h"
+#include "roo_threads.h"
 #include "roo_threads/semaphore.h"
 
 namespace roo_scheduler {
