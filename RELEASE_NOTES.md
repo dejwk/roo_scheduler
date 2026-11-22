@@ -1,9 +1,10 @@
 # roo_scheduler 2.4.0
 
-- Added allocation-free ISR submission of borrowed tasks with eight pending slots per service and explicit overflow reporting.
-- Wake the dispatcher for task and interrupt submissions on supported FreeRTOS and bare-metal RP2040 builds.
-- Use the public `roo_threads` critical-section and wake APIs for all ISR backends.
-- Integrated ISR work with dispatch cutoffs, priority and cancellation. Requires roo_threads 1.4.0.
+- Added `Scheduler::tryScheduleNowFromIsr()` for allocation-free submission of borrowed tasks, with eight pending slots per service. It returns `false` when all slots are full. The dispatcher runs the callbacks and applies the usual dispatch cutoffs, priorities, and cancellation rules. Added a GPIO interrupt example.
+- Ordinary and interrupt submissions now wake the dispatcher on supported FreeRTOS and bare-metal RP2040 builds using public `roo_threads` critical-section and wake APIs. Added `SchedulingService::waitForWork()` for custom dispatch loops.
+- Completed the scheduler interface migration. Use `SchedulingService` for ownership and dispatch and `Scheduler&` for scheduling and cancellation. `SchedulerClient` remains a deprecated alias for `Scheduler`. Update owner declarations and forward declarations that used `Scheduler`, and rebuild dependent binaries.
+- Fixed Arduino dependency discovery. Added `roo_backport` 1.3.0 and raised dependency versions to `roo_collections` 2.0.2, `roo_threads` 1.4.0, and `roo_time` 2.2.1, with matching PlatformIO minimums.
+- Updated `roo_testing` to 2.7.0 and added regression coverage for interrupt wake-ups, slot exhaustion, cancellation, and allocation-free dispatch on ESP32 and Pico.
 
 ---
 
