@@ -5,7 +5,8 @@
 #include <exception>
 
 // Emulation identifies the runtime independently of the chip and SDK.
-#if defined(ROO_THREADS_SINGLETHREADED) && !defined(__FREERTOS) && \
+#if !ROO_THREADS_HAS_ISR_SUPPORT && defined(ROO_THREADS_SINGLETHREADED) && \
+    !defined(__FREERTOS) &&                                                \
     !(defined(LIB_FREERTOS_KERNEL) && LIB_FREERTOS_KERNEL)
 #if defined(ROO_TESTING)
 #if defined(ROO_TESTING_RUNTIME_BARE_METAL) &&                           \
@@ -70,7 +71,6 @@ Scheduler::~Scheduler() {
 ExecutionID Scheduler::scheduleOn(roo_time::Uptime when, Executable& task,
                                   Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
-  changed_.notify_all();
   return push(when, &task, false, priority);
 }
 
@@ -78,7 +78,6 @@ ExecutionID Scheduler::scheduleOn(roo_time::Uptime when,
                                   std::unique_ptr<Executable> task,
                                   Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
-  changed_.notify_all();
   return push(when, task.release(), true, priority);
 }
 
@@ -86,14 +85,12 @@ ExecutionID Scheduler::scheduleOn(roo_time::Uptime when,
                                   std::function<void()> task,
                                   Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
-  changed_.notify_all();
   return push(when, new Task(std::move(task)), true, priority);
 }
 
 ExecutionID Scheduler::scheduleAfter(roo_time::Duration delay, Executable& task,
                                      Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
-  changed_.notify_all();
   return push(roo_time::Uptime::Now() + delay, &task, false, priority);
 }
 
@@ -101,7 +98,6 @@ ExecutionID Scheduler::scheduleAfter(roo_time::Duration delay,
                                      std::unique_ptr<Executable> task,
                                      Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
-  changed_.notify_all();
   return push(roo_time::Uptime::Now() + delay, task.release(), true, priority);
 }
 
@@ -109,7 +105,6 @@ ExecutionID Scheduler::scheduleAfter(roo_time::Duration delay,
                                      std::function<void()> task,
                                      Priority priority) {
   roo::lock_guard<roo::mutex> lock(mutex_);
-  changed_.notify_all();
   return push(roo_time::Uptime::Now() + delay, new Task(std::move(task)), true,
               priority);
 }
@@ -121,9 +116,14 @@ ExecutionID Scheduler::push(roo_time::Uptime when, Executable* task,
   next_execution_id_ = (static_cast<uint32_t>(id) + 1) & 0x7FFFFFFF;
   queue_.emplace_back(id, task, owns_task, when, priority);
   std::push_heap(queue_.begin(), queue_.end(), TimeComparator());
+#if ROO_THREADS_HAS_ISR_SUPPORT
+  work_event_.signal();
+#else
+  changed_.notify_all();
 #ifdef ROO_SCHEDULER_PICO_EVENT_WAIT
   // Cooperative callbacks can post while the dispatcher is in a Pico wait.
   __sev();
+#endif
 #endif
   return id;
 }
@@ -373,9 +373,7 @@ ExecutionID Scheduler::replace(ExecutionID previous, roo_time::Uptime when,
       canceled_.insert(previous);
     }
   }
-  ExecutionID id = push(when, &task, false, priority);
-  changed_.notify_all();
-  return id;
+  return push(when, &task, false, priority);
 }
 
 void SchedulingService::pruneCanceled() {
@@ -456,6 +454,10 @@ void SchedulingService::delayUntil(roo_time::Uptime deadline,
                                    Priority min_priority) {
   while (roo_time::Uptime::Now() < deadline) {
     if (executeEligibleTasks(1)) {
+#if ROO_THREADS_HAS_ISR_SUPPORT
+      const auto next = std::min(deadline, getNearestExecutionTime());
+      if (next > roo_time::Uptime::Now()) work_event_.wait_until(next);
+#else
       roo::unique_lock<roo::mutex> lock(mutex_);
       roo_time::Uptime next = getNearestExecutionTimeWithLockHeld();
       if (next > deadline) next = deadline;
@@ -463,13 +465,17 @@ void SchedulingService::delayUntil(roo_time::Uptime deadline,
       if (next > now) {
         changed_.wait_until(lock, next);
       }
+#endif
     }
   }
   executeEligibleTasksUpTo(deadline, min_priority);
 }
 
 void SchedulingService::waitForWork() {
-#ifdef ROO_SCHEDULER_PICO_EVENT_WAIT
+#if ROO_THREADS_HAS_ISR_SUPPORT
+  const auto next = getNearestExecutionTime();
+  if (next > roo_time::Uptime::Now()) work_event_.wait_until(next);
+#elif defined(ROO_SCHEDULER_PICO_EVENT_WAIT)
   const roo_time::Uptime next = getNearestExecutionTime();
   if (next == roo_time::Uptime::Max()) {
     __wfe();

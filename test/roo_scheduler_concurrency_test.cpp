@@ -8,6 +8,25 @@
 namespace roo_scheduler {
 using namespace roo_time;
 
+// Verifies task submissions wake a dispatcher sleeping for a later deadline.
+TEST(SchedulerConcurrency, NewSubmissionInterruptsTimedWait) {
+  SchedulingService s;
+  const Uptime later = Uptime::Now() + Millis(250);
+  s.scheduleOn(later, [] {});
+  Uptime ran;
+  roo::thread producer([&] {
+    roo::this_thread::sleep_for(Millis(20));
+    s.scheduleNow([&] { ran = Uptime::Now(); });
+  });
+  do {
+    s.waitForWork();
+    s.executeEligibleTasks();
+  } while (ran == Uptime::Start() && Uptime::Now() < later);
+  producer.join();
+  EXPECT_NE(ran, Uptime::Start());
+  EXPECT_LT(ran, later);
+}
+
 TEST(SchedulerConcurrency, ImmediateSingletonPublication) {
   SchedulingService s;
   roo::binary_semaphore submitted(0), finished(0);

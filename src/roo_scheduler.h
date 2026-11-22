@@ -12,6 +12,7 @@
 #include "roo_collections/flat_small_hash_set.h"
 #include "roo_threads.h"
 #include "roo_threads/condition_variable.h"
+#include "roo_threads/isr_event.h"
 #include "roo_threads/mutex.h"
 #include "roo_time.h"
 
@@ -436,8 +437,11 @@ class Scheduler {
   roo_collections::FlatSmallHashSet<ExecutionID> canceled_;
 
   mutable roo::mutex mutex_;
-  // Queue changes and execution completion share the same mutex/predicate loop.
+  // Completion notifications also wake dispatch on builds without a work event.
   roo::condition_variable changed_;
+#if ROO_THREADS_HAS_ISR_SUPPORT
+  roo::isr_event work_event_;
+#endif
 };
 
 /// Schedules and dispatches delayed task executions.
@@ -548,6 +552,7 @@ class SchedulingService : public Scheduler {
   /// `__sev()` to wake the loop. Other single-threaded builds poll an idle
   /// queue at 1 ms intervals to let the platform's cooperative event pump run.
   ///
+  /// Submissions can wake a wait for an empty queue or a later deadline.
   /// Call from the dispatch context and recheck application signals and work
   /// after each return. This method does not execute tasks.
   void waitForWork();
