@@ -4,6 +4,8 @@
 #include <cassert>
 #include <exception>
 
+#include "roo_backport/bit.h"
+
 namespace roo_scheduler {
 namespace {
 // Execution IDs are nonnegative; encode idle and permanent shutdown in the
@@ -105,8 +107,7 @@ bool Scheduler::tryScheduleNowFromIsr(Executable& task,
   {
     roo::isr_lock_guard lock(isr_lock_, roo::isr_lock_guard::Context::kIsr);
     if (free_isr_slots_ == 0) return false;
-    const unsigned index =
-        __builtin_ctz(static_cast<unsigned>(free_isr_slots_));
+    const unsigned index = roo::countr_zero(free_isr_slots_);
     free_isr_slots_ &= ~(1u << index);
     Entry& slot = isr_slots_[index];
     slot.task_ = &task;

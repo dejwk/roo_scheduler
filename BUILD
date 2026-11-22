@@ -20,6 +20,7 @@ config_setting(
 )
 
 SCHEDULER_DEPS = [
+    "@roo_backport",
     "@roo_collections",
     "@roo_threads",
     "@roo_time",
