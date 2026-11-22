@@ -4,6 +4,7 @@
 #include <cassert>
 #include <exception>
 
+#include "roo_backport.h"
 #include "roo_backport/bit.h"
 
 namespace roo_scheduler {

@@ -169,6 +169,25 @@ cc_test(
     ] + TEST_MAIN_DEPS,
 )
 
+cc_test(
+    name = "roo_scheduler_isr_pico_freertos_test",
+    size = "small",
+    srcs = ["test/roo_scheduler_isr_pico_freertos_test.cpp"],
+    linkopts = ["-Wl,--wrap=RooFreeRtosPollWaiters"],
+    linkstatic = True,
+    target_compatible_with = [
+        "@roo_testing//roo_testing/platforms:freertos",
+        "@roo_testing//roo_testing/platforms:rp2040",
+    ],
+    deps = [
+        ":roo_scheduler",
+        "@googletest//:gtest",
+        "@roo_testing//roo_testing/frameworks/freertos_posix:config",
+        "@roo_testing//roo_testing/system:manual_time_mode",
+        "@roo_testing//roo_testing/system:timer",
+    ] + TEST_MAIN_DEPS,
+)
+
 [
     cc_test(
         name = scheduler + "_isr_pico_test",
