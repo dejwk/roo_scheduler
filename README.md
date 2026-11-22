@@ -1,6 +1,6 @@
 # roo_scheduler
 
-Arduino-compliant microcontroller library for scheduling delayed and/or repetitive tasks. Works on boards that support C++ standard library (e.g. Espressif ESP32 family, and Raspberry Pi Pico SMP). Specifically, it requires the following standard headers: `<memory>`, `<queue>`, and `<functional>`.
+Arduino-compliant microcontroller library for scheduling delayed and/or repetitive tasks. Works on boards that support C++ standard library (e.g. Espressif ESP32 family, and Raspberry Pi Pico with or without FreeRTOS). Specifically, it requires the following standard headers: `<memory>`, `<queue>`, and `<functional>`.
 
 Uses vector-backed heaps for queued work and ready work:
 
@@ -137,14 +137,14 @@ captures and the selected threading backend can have their own allocation costs.
 
 ## Host emulation
 
-Host builds use the roo_testing 2.0 Arduino ESP32 profile. With Bazelisk 1.21
-or newer, a plain command defaults to that profile and prints a notice:
+Host builds default to the roo_testing Arduino ESP32 profile. Bazelisk 1.21
+or newer selects that profile when no frontend is specified.
 
     bazel test ...
     bazel test ... --config=asan
     bazel test ... --config=roo_testing_arduino_esp32
 
-The files under .roo_testing/bazelrc/esp32 are vendored from roo_testing;
+The files under `.roo_testing/bazelrc` are vendored from roo_testing;
 follow their canonical-source headers when refreshing them.
 
 Arduino examples are native runnable targets in their source packages. For
@@ -152,12 +152,23 @@ example:
 
     bazel run //examples/simple:simple
 
-### Bare-metal Pico emulation
+### Bare-metal Pico
 
-With coordinated local roo_testing, roo_threads and roo_time overrides, the
-cooperative scheduler uses the existing single-threaded locks and timed waits.
-Dispatch, cancellation, allocation and delay tests run on native Arduino-Pico.
-An idle `run()` polls through a 1 ms platform delay so cooperative clock events
-can submit work; it does not require an indefinite condition-variable wait.
-The concurrency suite is excluded on bare-metal runtimes. Native thread
-creation and cross-thread shutdown remain outside that runtime's support.
+On bare-metal RP2040 with Pico SDK 2.1 or newer and the default alarm pool
+enabled, `SchedulingService::run()` waits for a scheduled deadline or a
+processor event. Arduino-Pico selects this wait automatically. Native Pico
+SDK builds can set `ROO_THREADS_PICO_SDK_BARE_METAL=1` on the library target.
+Other single-threaded builds poll an idle queue at 1 ms intervals.
+
+An interrupt handler can record an application signal and call `__sev()`.
+In the application loop, check for the signal and submit tasks, call
+`executeEligibleTasks()`, then call `waitForWork()` before repeating.
+
+The Arduino-Pico tests use the same SDK alarm and event APIs as the device.
+Until a released `roo_testing` includes Pico IRQ and event-wait support, use a
+local checkout containing that support.
+
+    bazel test --config=roo_testing_arduino_rp2040 \
+      --override_module=roo_testing=../roo_testing //...
+
+Native thread creation and cross-thread shutdown require a threaded runtime.

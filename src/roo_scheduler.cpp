@@ -4,6 +4,35 @@
 #include <cassert>
 #include <exception>
 
+// Emulation identifies the runtime independently of the chip and SDK.
+#if defined(ROO_THREADS_SINGLETHREADED) && !defined(__FREERTOS) && \
+    !(defined(LIB_FREERTOS_KERNEL) && LIB_FREERTOS_KERNEL)
+#if defined(ROO_TESTING)
+#if defined(ROO_TESTING_RUNTIME_BARE_METAL) &&                           \
+    ROO_TESTING_RUNTIME_BARE_METAL && defined(ROO_TESTING_SOC_RP2040) && \
+    ROO_TESTING_SOC_RP2040 && defined(PICO_BUILD) && PICO_BUILD
+#define ROO_SCHEDULER_BARE_METAL_PICO
+#endif
+#elif defined(PICO_ON_DEVICE) && PICO_ON_DEVICE && \
+    (defined(ARDUINO_ARCH_RP2040) ||               \
+     (defined(ROO_THREADS_PICO_SDK_BARE_METAL) &&  \
+      ROO_THREADS_PICO_SDK_BARE_METAL))
+#define ROO_SCHEDULER_BARE_METAL_PICO
+#endif
+#endif
+
+#ifdef ROO_SCHEDULER_BARE_METAL_PICO
+#include <pico/time.h>
+// SDK 2.0.0 could clear a pending event before parking in a timed wait.
+#if defined(PICO_RP2040) && PICO_RP2040 &&                            \
+    (PICO_SDK_VERSION_MAJOR > 2 ||                                    \
+     (PICO_SDK_VERSION_MAJOR == 2 && PICO_SDK_VERSION_MINOR >= 1)) && \
+    !PICO_TIME_DEFAULT_ALARM_POOL_DISABLED
+#include <hardware/sync.h>
+#define ROO_SCHEDULER_PICO_EVENT_WAIT
+#endif
+#endif
+
 namespace roo_scheduler {
 namespace {
 // Execution IDs are nonnegative; encode idle and permanent shutdown in the
@@ -92,6 +121,10 @@ ExecutionID Scheduler::push(roo_time::Uptime when, Executable* task,
   next_execution_id_ = (static_cast<uint32_t>(id) + 1) & 0x7FFFFFFF;
   queue_.emplace_back(id, task, owns_task, when, priority);
   std::push_heap(queue_.begin(), queue_.end(), TimeComparator());
+#ifdef ROO_SCHEDULER_PICO_EVENT_WAIT
+  // Cooperative callbacks can post while the dispatcher is in a Pico wait.
+  __sev();
+#endif
   return id;
 }
 
@@ -436,6 +469,15 @@ void SchedulingService::delayUntil(roo_time::Uptime deadline,
 }
 
 void SchedulingService::waitForWork() {
+#ifdef ROO_SCHEDULER_PICO_EVENT_WAIT
+  const roo_time::Uptime next = getNearestExecutionTime();
+  if (next == roo_time::Uptime::Max()) {
+    __wfe();
+  } else if (next > roo_time::Uptime::Now()) {
+    best_effort_wfe_or_timeout(
+        from_us_since_boot(static_cast<uint64_t>(next.inMicros())));
+  }
+#else
   roo::unique_lock<roo::mutex> lock(mutex_);
   const roo_time::Duration delay = getNearestExecutionDelayWithLockHeld();
   if (delay <= roo_time::Duration()) return;
@@ -449,6 +491,7 @@ void SchedulingService::waitForWork() {
   } else {
     changed_.wait_for(lock, delay);
   }
+#endif
 }
 
 void SchedulingService::run() {

@@ -112,7 +112,10 @@ class Executable {
 /// called from any thread; neither dispatches callbacks inline nor waits for
 /// callback completion. Another thread may already be dispatching work, and
 /// cancellation may synchronously destroy owned tasks outside scheduler locks.
-/// Adapters retain their documented shutdown and lifetime requirements.
+/// Call these operations from application or task context. With a
+/// single-threaded backend, run ordinary operations on one core or serialize
+/// them externally. Adapters retain their documented shutdown and lifetime
+/// requirements.
 class Scheduler {
  public:
   /// Schedules execution no earlier than `when`.
@@ -537,17 +540,20 @@ class SchedulingService : public Scheduler {
   void delayUntil(roo_time::Uptime deadline,
                   Priority min_priority = Priority::kNormal);
 
-  /// Lets the dispatch loop wait until a scheduled task is due or a wakeup
-  /// occurs. Returns immediately when work is already due.
+  /// Lets an application loop sleep until a scheduled task is due or a wakeup
+  /// occurs. Returns immediately if work is already due.
   ///
-  /// Single-threaded backends poll an idle queue at 1 ms intervals, allowing
-  /// the platform's delay/event pump to submit work without a producer thread.
-  /// Call from the dispatch context and recheck for work after each return.
-  /// This method does not execute tasks.
+  /// On bare-metal RP2040 with Pico SDK 2.1 or newer and the default alarm pool
+  /// enabled, an interrupt handler can publish an application signal and call
+  /// `__sev()` to wake the loop. Other single-threaded builds poll an idle
+  /// queue at 1 ms intervals to let the platform's cooperative event pump run.
+  ///
+  /// Call from the dispatch context and recheck application signals and work
+  /// after each return. This method does not execute tasks.
   void waitForWork();
 
   /// Runs the scheduler event loop forever, dispatching work and waiting for
-  /// the next task.
+  /// the next task. Use waitForWork() in a custom loop to handle Pico events.
   void run();
 };
 

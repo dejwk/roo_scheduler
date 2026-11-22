@@ -3,6 +3,24 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
+config_setting(
+    name = "bare_metal_rp2040",
+    constraint_values = [
+        "@roo_testing//roo_testing/platforms:bare_metal",
+        "@roo_testing//roo_testing/platforms:pico_sdk",
+        "@roo_testing//roo_testing/platforms:rp2040",
+    ],
+)
+
+SCHEDULER_DEPS = [
+    "@roo_collections",
+    "@roo_threads",
+    "@roo_time",
+] + select({
+    ":bare_metal_rp2040": ["@roo_testing//:pico_sdk"],
+    "//conditions:default": [],
+})
+
 cc_library(
     name = "roo_scheduler",
     srcs = glob(
@@ -16,11 +34,7 @@ cc_library(
         "src",
     ],
     visibility = ["//visibility:public"],
-    deps = [
-        "@roo_collections",
-        "@roo_threads",
-        "@roo_time",
-    ],
+    deps = SCHEDULER_DEPS,
 )
 
 cc_test(
@@ -92,11 +106,7 @@ cc_library(
     ],
     defines = ["ROO_SCHEDULER_IGNORE_PRIORITY=1"],
     includes = ["src"],
-    deps = [
-        "@roo_collections",
-        "@roo_threads",
-        "@roo_time",
-    ],
+    deps = SCHEDULER_DEPS,
 )
 
 cc_test(
@@ -123,10 +133,14 @@ cc_test(
     target_compatible_with = [
         "@roo_testing//roo_testing/platforms:bare_metal",
         "@roo_testing//roo_testing/platforms:arduino",
+        "@roo_testing//roo_testing/platforms:pico_sdk",
+        "@roo_testing//roo_testing/platforms:rp2040",
     ],
     deps = [
         ":roo_scheduler",
+        "@googletest//:gtest",
         "@roo_testing//:arduino_gtest_main",
+        "@roo_testing//:pico_sdk",
         "@roo_testing//roo_testing/system:manual_time_mode",
         "@roo_testing//roo_testing/system:timer",
     ],
