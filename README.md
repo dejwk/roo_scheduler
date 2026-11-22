@@ -55,6 +55,25 @@ prohibit nested dispatch. Cancellation can destroy owned callables synchronously
 objects captured by deferred work still need explicit lifetime management.
 Adapter shutdown retains its existing waiting behavior, described below.
 
+## Scheduling from an interrupt
+
+When `ROO_THREADS_HAS_ISR_SUPPORT` is `1`, an interrupt can use
+`Scheduler::tryScheduleNowFromIsr(task, priority)` to request a borrowed
+execution. The scheduler holds up to eight pending ISR requests. A
+successful call reserves one slot, including when the same task is
+already pending. A full scheduler returns `false`. The callback runs in
+dispatch context and receives its execution ID there.
+
+An ISR request becomes due when the dispatcher imports it. In particular,
+a post first imported after a `delayUntil()` deadline can remain pending
+when that call returns. Before destroying a borrowed task, disable and
+synchronize its interrupt producers and call `cancelAndWait(task)` from
+ordinary context. On FreeRTOS with `ROO_THREADS_SINGLETHREADED`, one task
+makes all ordinary scheduler calls for the service.
+
+[GPIO example](examples/isr_gpio/isr_gpio.ino) ·
+[ISR priority and memory requirements](docs/isr-task-scheduling.md#proposed-api)
+
 ## Dispatch cutoffs
 
 `executeEligibleTasksUpTo(cutoff)` admits queued tasks due by

@@ -4,6 +4,7 @@
 ///
 /// Provides task scheduling primitives and adapters.
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -12,6 +13,7 @@
 #include "roo_collections/flat_small_hash_set.h"
 #include "roo_threads.h"
 #include "roo_threads/condition_variable.h"
+#include "roo_threads/impl/isr_critical_section.h"
 #include "roo_threads/isr_event.h"
 #include "roo_threads/mutex.h"
 #include "roo_time.h"
@@ -109,14 +111,14 @@ class Executable {
 /// Provides scheduling and cancellation without access to dispatch operations.
 ///
 /// Borrow this interface from a SchedulingService. The service must outlive
-/// every client reference and task adapter. Scheduling and cancellation may be
-/// called from any thread; neither dispatches callbacks inline nor waits for
-/// callback completion. Another thread may already be dispatching work, and
-/// cancellation may synchronously destroy owned tasks outside scheduler locks.
-/// Call these operations from application or task context. With a
-/// single-threaded backend, run ordinary operations on one core or serialize
-/// them externally. Adapters retain their documented shutdown and lifetime
-/// requirements.
+/// every client reference and task adapter. With a thread-safe mutex,
+/// ordinary scheduling and cancellation can run on any task. On FreeRTOS
+/// with ROO_THREADS_SINGLETHREADED, one task must make all ordinary calls
+/// for a service. See SchedulingService for the bare-metal calling rules.
+///
+/// Ordinary scheduling and cancellation run in application or task context.
+/// Cancellation may destroy owned tasks outside scheduler locks. Adapters
+/// retain their documented shutdown and lifetime requirements.
 class Scheduler {
  public:
   /// Schedules execution no earlier than `when`.
@@ -203,6 +205,17 @@ class Scheduler {
                           Priority priority = Priority::kNormal) {
     return scheduleOn(roo_time::Uptime::Now(), std::move(task), priority);
   }
+
+#if ROO_THREADS_HAS_ISR_SUPPORT
+  /// Requests one borrowed execution from an ISR. Returns false when the
+  /// eight pending ISR slots are full. The callback receives its execution ID.
+  /// On FreeRTOS, the interrupt priority must permit kernel API calls.
+  /// On ESP32 with cache disabled, all called code and accessed data must
+  /// reside in internal memory. See SchedulingService::cancelAndWait() for
+  /// borrowed-task teardown.
+  bool tryScheduleNowFromIsr(Executable& task,
+                             Priority priority = Priority::kNormal) noexcept;
+#endif
 
   /// Marks execution identified by `id` as canceled.
   ///
@@ -351,6 +364,7 @@ class Scheduler {
 
    private:
     friend struct TimeComparator;
+    friend class Scheduler;
 
     ExecutionID id_;
     Executable* task_;
@@ -364,7 +378,7 @@ class Scheduler {
 
   // Orders scheduled tasks in the queue by their nearest execution time.
   struct TimeComparator {
-    bool operator()(const Entry& a, const Entry& b) {
+    bool operator()(const Entry& a, const Entry& b) const {
       return a.when() > b.when() ||
              (a.when() == b.when() && a.id() - b.id() > 0);
     }
@@ -372,7 +386,7 @@ class Scheduler {
 
   // Used for tasks that are already due, ordering them by priority.
   struct PriorityComparator {
-    bool operator()(const Entry& a, const Entry& b) {
+    bool operator()(const Entry& a, const Entry& b) const {
       return a.priority() < b.priority() ||
              (a.priority() == b.priority() &&
               (a.when() > b.when() ||
@@ -401,14 +415,22 @@ class Scheduler {
 
   roo_time::Duration getNearestExecutionDelayWithLockHeld() const;
 
+  ExecutionID nextExecutionId();
+
   ExecutionID push(roo_time::Uptime when, Executable* task, bool owns_task,
                    Priority priority);
   void pop(RetiredTasks& retired);
 
-  // Returns true if has been executed; false if there was no eligible
-  // execution.
-  bool runOneEligibleExecution(roo_time::Uptime deadline,
-                               Priority min_priority);
+  enum class DispatchMode { kFixed, kCaptureCutoff, kDelay };
+
+  struct DispatchSelection {
+    roo_time::Uptime cutoff;
+    Priority min_priority;
+    DispatchMode mode;
+  };
+
+  bool executeEligibleTasks(DispatchSelection selection, int max_tasks);
+  bool runOneEligibleExecution(DispatchSelection& selection);
 
   // Entries in the queue_ are stored as a heap. (We're not directly using
   // std::priority_queue in order to support cancellation; see prune()). Since
@@ -440,7 +462,31 @@ class Scheduler {
   // Completion notifications also wake dispatch on builds without a work event.
   roo::condition_variable changed_;
 #if ROO_THREADS_HAS_ISR_SUPPORT
+  static constexpr unsigned kIsrCapacity = 8;
+  static constexpr unsigned kAllIsrSlots = (1u << kIsrCapacity) - 1;
+
+  bool hasIsrWork() const;
+  roo_time::Uptime importIsrSlots();
+  Entry* findIsrCandidate(roo_time::Uptime cutoff);
+  void releaseIsrSlot(Entry& slot);
+  void removeIsrSlots(Executable& task);
+
   roo::isr_event work_event_;
+  mutable roo_threads::internal::IsrCriticalSection isr_lock_;
+
+  // ISR metadata under isr_lock_. Capture the posted list while leaving its
+  // slots occupied. After capture, only the dispatcher or cancellation can
+  // touch a slot until it is returned to the free mask.
+  Entry isr_slots_[kIsrCapacity];
+  uint8_t posted_isr_slots_[kIsrCapacity];
+  uint8_t posted_isr_count_ = 0;
+  uint8_t free_isr_slots_ = kAllIsrSlots;
+
+  // Admission state is protected by the ordinary scheduler mutex.
+  uint8_t imported_isr_slots_ = 0;
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+  uint8_t ready_isr_slots_ = 0;
+#endif
 #endif
 };
 
@@ -449,8 +495,12 @@ class Scheduler {
 /// SchedulingService does not execute eligible work automatically; caller must
 /// invoke one of `executeEligibleTasks*()` methods.
 ///
-/// Scheduling, cancellation and queries may be called from any thread. Dispatch
-/// must be serialized on one thread; nested dispatch on that thread is allowed.
+/// With a thread-safe mutex, scheduling, cancellation and queries may be
+/// called from any thread. Dispatch must be serialized on one thread, where
+/// nested dispatch is allowed. With ROO_THREADS_SINGLETHREADED on FreeRTOS,
+/// one task must make all ordinary calls for this service. On bare-metal
+/// builds with a no-op mutex, use one core or serialize ordinary calls
+/// externally. Supported interrupt producers can use tryScheduleNowFromIsr().
 /// Callbacks and canceled task destructors run without the scheduler mutex.
 /// Stop dispatch and all producers before destroying the scheduler. The
 /// scheduler must outlive every adapter that refers to it.
@@ -469,10 +519,7 @@ class SchedulingService : public Scheduler {
   ///
   /// @return true if no eligible executions remain in queue; false otherwise.
   bool executeEligibleTasksUpToNow(Priority min_priority = Priority::kMinimum,
-                                   int max_count = -1) {
-    return executeEligibleTasksUpTo(roo_time::Uptime::Now(), min_priority,
-                                    max_count);
-  }
+                                   int max_count = -1);
 
   /// Admits queued tasks due no later than min(deadline, now), then executes
   /// up to `max_count` eligible tasks in priority order.
@@ -511,7 +558,9 @@ class SchedulingService : public Scheduler {
 
   /// Cancels all pending executions of a borrowed task and waits for claimed
   /// executions to return. Prevent concurrent rescheduling before calling this.
-  /// Do not hold a lock that the callback needs. Returns false instead of
+  /// Disable interrupt producers for this task and synchronize with handlers
+  /// already in progress before calling. Do not hold a lock that the callback
+  /// needs. Returns false instead of
   /// waiting if this thread is currently dispatching the task (including an
   /// outer callback during nested dispatch). In that case it is not quiescent.
   bool cancelAndWait(Executable& task) {
@@ -560,6 +609,9 @@ class SchedulingService : public Scheduler {
   /// Runs the scheduler event loop forever, dispatching work and waiting for
   /// the next task. Use waitForWork() in a custom loop to handle Pico events.
   void run();
+
+ private:
+  void waitUntilNextWork(roo_time::Uptime deadline);
 };
 
 /// Compatibility alias for the restricted scheduling interface.

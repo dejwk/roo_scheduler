@@ -1,3 +1,11 @@
+# roo_scheduler 2.4.0
+
+- Added allocation-free ISR submission of borrowed tasks with eight pending slots per service and explicit overflow reporting.
+- Wake the dispatcher for task and interrupt submissions on supported FreeRTOS and bare-metal RP2040 builds.
+- Integrated ISR work with dispatch cutoffs, priority and cancellation. Requires roo_threads 1.4.0.
+
+---
+
 # roo_scheduler 2.3.0
 
 - Add `Scheduler`, a restricted interface for scheduling and cancellation, and rename the owning class to `SchedulingService`. Keep `SchedulerClient` as a deprecated alias for `Scheduler`; migrate former `Scheduler` owner declarations to `SchedulingService`.

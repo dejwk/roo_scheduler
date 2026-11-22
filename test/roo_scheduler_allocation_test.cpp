@@ -4,6 +4,10 @@
 #include "gtest/gtest.h"
 #include "roo_scheduler.h"
 
+#ifdef ROO_THREADS_INTERNAL_ISR_PICO
+#include <pico/time.h>
+#endif
+
 namespace {
 thread_local bool count_allocations = false;
 thread_local size_t allocations = 0;
@@ -143,3 +147,48 @@ TEST(SchedulerAllocation, SingletonReplacementReusesPendingQueueSlot) {
   EXPECT_EQ(observed, 0u);
 }
 }  // namespace roo_scheduler
+
+#if defined(ROO_THREADS_INTERNAL_ISR_PICO)
+namespace roo_scheduler {
+namespace {
+
+struct CountedIsrPost {
+  SchedulingService& scheduler;
+  Executable& task;
+  size_t post_allocations = 0;
+  bool accepted = false;
+};
+
+int64_t PostCountedTask(alarm_id_t, void* argument) {
+  auto& post = *static_cast<CountedIsrPost*>(argument);
+  CountAllocations count;
+  post.accepted = post.scheduler.tryScheduleNowFromIsr(post.task);
+  post.post_allocations = allocations;
+  return 0;
+}
+
+// Verifies cold ISR publication, import and dispatch never grow a heap.
+TEST(SchedulerAllocation, ColdIsrDispatchDoesNotAllocate) {
+  SchedulingService scheduler;
+  int runs = 0;
+  Task task([&] { ++runs; });
+  CountedIsrPost post{scheduler, task};
+  const alarm_id_t alarm = add_alarm_in_us(10, PostCountedTask, &post, false);
+  ASSERT_GT(alarm, 0);
+  roo_time::Delay(roo_time::Micros(10));
+  cancel_alarm(alarm);
+  ASSERT_TRUE(post.accepted);
+  EXPECT_EQ(post.post_allocations, 0u);
+  size_t dispatch_allocations;
+  {
+    CountAllocations count;
+    scheduler.executeEligibleTasks();
+    dispatch_allocations = allocations;
+  }
+  EXPECT_EQ(runs, 1);
+  EXPECT_EQ(dispatch_allocations, 0u);
+}
+
+}  // namespace
+}  // namespace roo_scheduler
+#endif

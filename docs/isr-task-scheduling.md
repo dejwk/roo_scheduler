@@ -120,7 +120,9 @@ Higher priority wins. Equal priorities are ordered by due time, then by
 execution ID. Apply the existing minimum-priority rule to the combined
 selection. In builds with `ROO_SCHEDULER_IGNORE_PRIORITY`, use due time and
 execution ID to compare the best eligible slot and the time-heap head,
-following the existing cutoff and minimum-priority behavior.
+following the existing cutoff and minimum-priority behavior. Compare IDs
+numerically, as the existing heaps do. At ID rollover, executions with the
+same due time and effective priority can run out of publication order.
 
 After choosing an ISR entry, record its task and ID for dispatch under the
 scheduler mutex, register it as in flight, and release its slot. The callback
@@ -144,11 +146,16 @@ caller, which rechecks work before the next wait. This supports `run()`
 and explicit loops without executing callbacks inside `waitForWork()`.
 
 Use the same event in `delayUntil()`, bounded by the earlier of its return
-deadline and the next scheduled deadline. Keep its opportunistic dispatch
-before the return deadline and its priority-filtered final dispatch through
-that deadline. Document in the public API that a request can still be
-pending when `delayUntil(deadline)` returns if it was first imported after
-`deadline`, even when the ISR posted before it.
+deadline and the next scheduled deadline. Use the dispatch selection's
+uptime sample, taken after capturing posted indices, to choose how to
+dispatch. While the sample is before the return deadline, select one
+execution of any priority using the sample as the cutoff. Once the sample
+reaches the deadline, use the return deadline as the cutoff and apply the
+caller's minimum priority for the final dispatch. Previously admitted work
+retains its eligibility under the existing rules.
+
+Document that an ISR post can remain pending on return if it is first
+imported after the deadline, even when it was posted before the deadline.
 
 On builds without ISR support, retain the existing wait paths, including
 the raw Pico event path where already available. On supported Pico builds,
@@ -173,21 +180,30 @@ existing completion condition variable covers claimed executions.
 A successful call permits destruction of the borrowed task. The service
 must outlive every producer and dispatch call.
 
-Ordinary submission, queries, cancellation, and dispatch must run on one
-core or be externally serialized when the ordinary thread backend uses
-a no-op mutex. The ISR-safe critical section permits supported ISR producers
-on either core under that same configuration.
+On FreeRTOS builds that select `ROO_THREADS_SINGLETHREADED`, one task
+must make all ordinary scheduler calls for a service, including submission,
+queries, cancellation, dispatch, and waits. The scheduler mutex is a no-op
+in this configuration, and FreeRTOS can preempt tasks sharing a core.
+
+On bare-metal builds with a no-op mutex, make ordinary calls from one core
+or serialize them externally. In both configurations, the ISR-safe critical
+section permits supported interrupt producers on either core.
 [Borrowed task cancellation contract](../src/roo_scheduler.h)
 
 ## Proposed API
 
 Expose the method on `Scheduler` when `ROO_THREADS_HAS_ISR_SUPPORT` is `1`.
 The method becomes available together with working import, wake, and
-cancellation support.
+cancellation support. Submission uses the same interrupt priority and memory
+placement requirements as the
+[roo_threads ISR APIs](../../roo_threads/docs/isr-queue-and-wake-event.md#isr-calling-requirements).
 
 ```cpp
 /// Requests one borrowed task execution from an ISR.
 /// Returns false when all eight ISR request slots are occupied.
+/// On FreeRTOS, call only at an interrupt priority that permits kernel API calls.
+/// On ESP32, a cache-disabled handler requires the entire submission and wake
+/// path, including all accessed data, to reside in internal memory.
 /// See SchedulingService::cancelAndWait() for teardown.
 bool tryScheduleNowFromIsr(Executable& task,
                            Priority priority = Priority::kNormal) noexcept;
@@ -240,15 +256,19 @@ idle and timed waits, and Pico raw-event compatibility.
 **Proposed commit message** `Schedule borrowed tasks from interrupts using fixed slots`
 
 Add the slots and submission method. Integrate selection, queries, and
-cancellation. Document overflow, cutoff, and lifetime semantics and add a
-GPIO or timer example. Validate duplicate posts, saturation after import,
-capacity reuse after claiming or cancellation, and allocation-free
-handling of ISR work. Test mixed ISR and ordinary priorities, including
-equal-priority ties and an earlier cutoff after work is already ready.
-Cover the no-priority build, dispatch limits, cancellation before import
-and during a callback, and a post before `delayUntil()`'s deadline that is
-first imported after it. Exercise a simulated FreeRTOS ISR and a Pico alarm
-posting just before a wait and during a wait for a later deadline.
+cancellation. Document overflow, cutoff, lifetime, and ISR calling
+requirements on the public APIs. Update the service's threading contract for
+the FreeRTOS single-threaded override. Add a GPIO or timer example. Validate
+duplicate posts, saturation after import, capacity reuse after claiming or
+cancellation, and allocation-free handling of ISR work. Test mixed ISR and
+ordinary priorities, including equal-priority ties and an earlier cutoff
+after work is already ready. Cover the no-priority build, dispatch limits,
+and cancellation before import and during a callback. Use manual time to
+cross the `delayUntil()` deadline before a selection samples uptime. Check
+that it applies the final minimum priority and leaves an ISR post pending
+when the post predates the deadline and the import follows it. Exercise a
+simulated FreeRTOS ISR and a Pico alarm posting just before a wait and during
+a wait for a later deadline.
 
 ## Testing Plan
 

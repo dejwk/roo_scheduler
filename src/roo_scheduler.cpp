@@ -109,11 +109,16 @@ ExecutionID Scheduler::scheduleAfter(roo_time::Duration delay,
               priority);
 }
 
-ExecutionID Scheduler::push(roo_time::Uptime when, Executable* task,
-                            bool owns_task, Priority priority) {
-  ExecutionID id = next_execution_id_;
+ExecutionID Scheduler::nextExecutionId() {
+  const ExecutionID id = next_execution_id_;
   // Reserve negative IDs without overflowing signed arithmetic.
   next_execution_id_ = (static_cast<uint32_t>(id) + 1) & 0x7FFFFFFF;
+  return id;
+}
+
+ExecutionID Scheduler::push(roo_time::Uptime when, Executable* task,
+                            bool owns_task, Priority priority) {
+  const ExecutionID id = nextExecutionId();
   queue_.emplace_back(id, task, owns_task, when, priority);
   std::push_heap(queue_.begin(), queue_.end(), TimeComparator());
 #if ROO_THREADS_HAS_ISR_SUPPORT
@@ -127,6 +132,110 @@ ExecutionID Scheduler::push(roo_time::Uptime when, Executable* task,
 #endif
   return id;
 }
+
+#if ROO_THREADS_HAS_ISR_SUPPORT
+bool Scheduler::tryScheduleNowFromIsr(Executable& task,
+                                      Priority priority) noexcept {
+  {
+    using Guard = roo_threads::internal::IsrLockGuard;
+    Guard lock(isr_lock_, Guard::Context::kIsr);
+    if (free_isr_slots_ == 0) return false;
+    const unsigned index =
+        __builtin_ctz(static_cast<unsigned>(free_isr_slots_));
+    free_isr_slots_ &= ~(1u << index);
+    Entry& slot = isr_slots_[index];
+    slot.task_ = &task;
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+    slot.priority_ = priority;
+#else
+    (void)priority;
+#endif
+    posted_isr_slots_[posted_isr_count_++] = index;
+  }
+  work_event_.signal_from_isr();
+  return true;
+}
+
+bool Scheduler::hasIsrWork() const {
+  roo_threads::internal::IsrLockGuard lock(isr_lock_);
+  return free_isr_slots_ != kAllIsrSlots;
+}
+
+roo_time::Uptime Scheduler::importIsrSlots() {
+  uint8_t posted[kIsrCapacity];
+  unsigned count;
+  {
+    roo_threads::internal::IsrLockGuard lock(isr_lock_);
+    count = posted_isr_count_;
+    std::copy_n(posted_isr_slots_, count, posted);
+    posted_isr_count_ = 0;
+  }
+
+  const roo_time::Uptime now = roo_time::Uptime::Now();
+  for (unsigned i = 0; i < count; ++i) {
+    const unsigned index = posted[i];
+    Entry& slot = isr_slots_[index];
+    slot.id_ = nextExecutionId();
+    slot.when_ = now;
+    imported_isr_slots_ |= 1u << index;
+  }
+  return now;
+}
+
+Scheduler::Entry* Scheduler::findIsrCandidate(roo_time::Uptime cutoff) {
+#if ROO_SCHEDULER_IGNORE_PRIORITY
+  const TimeComparator compare;
+#else
+  const PriorityComparator compare;
+#endif
+  Entry* candidate = nullptr;
+  for (unsigned i = 0; i < kIsrCapacity; ++i) {
+    const unsigned bit = 1u << i;
+    if ((imported_isr_slots_ & bit) == 0) continue;
+    Entry& slot = isr_slots_[i];
+#if ROO_SCHEDULER_IGNORE_PRIORITY
+    if (slot.when() > cutoff) continue;
+#else
+    if (slot.when() <= cutoff) ready_isr_slots_ |= bit;
+    if ((ready_isr_slots_ & bit) == 0) continue;
+#endif
+    if (candidate == nullptr || compare(*candidate, slot)) candidate = &slot;
+  }
+  return candidate;
+}
+
+void Scheduler::releaseIsrSlot(Entry& slot) {
+  const unsigned bit = 1u << (&slot - isr_slots_);
+  imported_isr_slots_ &= ~bit;
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+  ready_isr_slots_ &= ~bit;
+#endif
+  roo_threads::internal::IsrLockGuard lock(isr_lock_);
+  free_isr_slots_ |= bit;
+}
+
+void Scheduler::removeIsrSlots(Executable& task) {
+  roo_threads::internal::IsrLockGuard lock(isr_lock_);
+  unsigned removed = 0;
+  for (unsigned i = 0; i < kIsrCapacity; ++i) {
+    const unsigned bit = 1u << i;
+    if ((free_isr_slots_ & bit) == 0 && isr_slots_[i].task() == &task) {
+      removed |= bit;
+    }
+  }
+  unsigned kept = 0;
+  for (unsigned i = 0; i < posted_isr_count_; ++i) {
+    const unsigned index = posted_isr_slots_[i];
+    if ((removed & (1u << index)) == 0) posted_isr_slots_[kept++] = index;
+  }
+  posted_isr_count_ = kept;
+  imported_isr_slots_ &= ~removed;
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+  ready_isr_slots_ &= ~removed;
+#endif
+  free_isr_slots_ |= removed;
+}
+#endif
 
 Scheduler::RetiredTasks::~RetiredTasks() {
   while (head_ != nullptr) {
@@ -158,6 +267,9 @@ void Scheduler::pop(RetiredTasks& retired) {
 
 bool SchedulingService::empty() const {
   roo::lock_guard<roo::mutex> lock(mutex_);
+#if ROO_THREADS_HAS_ISR_SUPPORT
+  if (hasIsrWork()) return false;
+#endif
   if (canceled_.empty()) {
     return queue_.empty()
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
@@ -176,20 +288,30 @@ bool SchedulingService::empty() const {
   return true;
 }
 
+bool SchedulingService::executeEligibleTasksUpToNow(Priority min_priority,
+                                                    int max_tasks) {
+  return Scheduler::executeEligibleTasks(
+      {roo_time::Uptime::Max(), min_priority, DispatchMode::kCaptureCutoff},
+      max_tasks);
+}
+
 bool SchedulingService::executeEligibleTasksUpTo(roo_time::Uptime deadline,
                                                  Priority min_priority,
                                                  int max_tasks) {
-  while (max_tasks < 0 || max_tasks-- > 0) {
-    if (!runOneEligibleExecution(deadline, min_priority)) return true;
-  }
-  return false;
+  return Scheduler::executeEligibleTasks(
+      {deadline, min_priority, DispatchMode::kFixed}, max_tasks);
 }
 
 bool SchedulingService::executeEligibleTasks(Priority min_priority,
                                              int max_tasks) {
+  return Scheduler::executeEligibleTasks(
+      {roo_time::Uptime::Max(), min_priority, DispatchMode::kFixed}, max_tasks);
+}
+
+bool Scheduler::executeEligibleTasks(DispatchSelection selection,
+                                     int max_tasks) {
   while (max_tasks < 0 || max_tasks-- > 0) {
-    if (!runOneEligibleExecution(roo_time::Uptime::Now(), min_priority))
-      return true;
+    if (!runOneEligibleExecution(selection)) return true;
   }
   return false;
 }
@@ -200,6 +322,9 @@ roo_time::Uptime SchedulingService::getNearestExecutionTime() const {
 }
 
 roo_time::Uptime Scheduler::getNearestExecutionTimeWithLockHeld() const {
+#if ROO_THREADS_HAS_ISR_SUPPORT
+  if (hasIsrWork()) return roo_time::Uptime::Now();
+#endif
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
   if (!ready_.empty()) {
     return roo_time::Uptime::Now();
@@ -217,6 +342,9 @@ roo_time::Duration SchedulingService::getNearestExecutionDelay() const {
 }
 
 roo_time::Duration Scheduler::getNearestExecutionDelayWithLockHeld() const {
+#if ROO_THREADS_HAS_ISR_SUPPORT
+  if (hasIsrWork()) return roo_time::Duration();
+#endif
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
   if (!ready_.empty()) {
     return roo_time::Duration();
@@ -230,114 +358,109 @@ roo_time::Duration Scheduler::getNearestExecutionDelayWithLockHeld() const {
   return roo_time::Duration::Max();
 }
 
-#if !ROO_SCHEDULER_IGNORE_PRIORITY
-bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
-                                        Priority min_priority) {
-  roo_time::Uptime now = roo_time::Uptime::Now();
-  if (deadline > now) deadline = now;
+bool Scheduler::runOneEligibleExecution(DispatchSelection& selection) {
   RetiredTasks retired;
   Entry to_execute;
   InFlight flight(*this);
   {
     roo::lock_guard<roo::mutex> lock(mutex_);
-    // Move all due tasks to the ready queue.
-    while (!queue_.empty() && queue_.front().when() <= deadline) {
+#if ROO_THREADS_HAS_ISR_SUPPORT
+    const roo_time::Uptime now = importIsrSlots();
+#else
+    const roo_time::Uptime now = roo_time::Uptime::Now();
+#endif
+    Priority min_priority = selection.min_priority;
+    if (selection.mode == DispatchMode::kCaptureCutoff) {
+      selection.cutoff = now;
+      selection.mode = DispatchMode::kFixed;
+    } else if (selection.mode == DispatchMode::kDelay) {
+      if (now < selection.cutoff) {
+        min_priority = Priority::kMinimum;
+      } else {
+        selection.mode = DispatchMode::kFixed;
+      }
+    }
+    const roo_time::Uptime cutoff = std::min(selection.cutoff, now);
+
+    Entry* candidate = nullptr;
+#if !ROO_SCHEDULER_IGNORE_PRIORITY
+    while (!queue_.empty() && queue_.front().when() <= cutoff) {
       ready_.push_back(std::move(queue_.front()));
       std::push_heap(ready_.begin(), ready_.end(), PriorityComparator());
       pop(retired);
     }
-    // The cutoff admits queued work. Previously admitted work stays eligible,
-    // including after nested dispatch or a later call with an earlier cutoff.
-    while (!ready_.empty()) {
-      if (canceled_.erase(ready_.front().id())) {
-        std::pop_heap(ready_.begin(), ready_.end(), PriorityComparator());
-        retired.add(std::move(ready_.back()));
-        ready_.pop_back();
-        continue;
-      }
-      if (ready_.front().priority() < min_priority) break;
-      to_execute = std::move(ready_.front());
+    // Previously admitted work remains eligible with an earlier cutoff.
+    while (!ready_.empty() && canceled_.erase(ready_.front().id())) {
       std::pop_heap(ready_.begin(), ready_.end(), PriorityComparator());
+      retired.add(std::move(ready_.back()));
       ready_.pop_back();
-      break;
     }
-    if (queue_.empty()
-#if !ROO_SCHEDULER_IGNORE_PRIORITY
-        && ready_.empty()
-#endif
-    )
-      canceled_.clear();
-    if (to_execute.task() != nullptr) {
-#ifndef ROO_THREADS_SINGLETHREADED
-      assert(in_flight_ == nullptr ||
-             in_flight_->thread == roo::this_thread::get_id());
-      flight.thread = roo::this_thread::get_id();
-#endif
-      flight.task = to_execute.task();
-      flight.previous = in_flight_;
-      in_flight_ = &flight;
-    }
-  }
-  if (to_execute.task() == nullptr) {
-    // No ready tasks.
-    return false;
-  }
-  to_execute.task()->execute(to_execute.id());
-  return true;
-}
+    if (!ready_.empty()) candidate = &ready_.front();
 #else
-bool Scheduler::runOneEligibleExecution(roo_time::Uptime deadline,
-                                        Priority min_priority) {
-  roo_time::Uptime now = roo_time::Uptime::Now();
-  if (deadline > now) deadline = now;
-  RetiredTasks retired;
-  Entry to_execute;
-  InFlight flight(*this);
-  {
-    roo::lock_guard<roo::mutex> lock(mutex_);
-    // Process all due tasks.
-    while (!queue_.empty() && queue_.front().when() <= deadline) {
-      Entry& entry = queue_.front();
-      // ExecutionID id = entry.id();
-      bool canceled = canceled_.erase(entry.id());
-      if (!canceled) {
-        if (entry.priority() < min_priority) {
-          // Next ready task is too low priority.
-          return false;
-        }
-        to_execute = std::move(entry);
-      }
+    while (!queue_.empty() && queue_.front().when() <= cutoff &&
+           (canceled_.erase(queue_.front().id()) ||
+            (min_priority <= Priority::kNormal &&
+             queue_.front().task() == nullptr))) {
       pop(retired);
+    }
+    if (!queue_.empty() && queue_.front().when() <= cutoff) {
+      candidate = &queue_.front();
+    }
+#endif
+
+#if ROO_THREADS_HAS_ISR_SUPPORT
+    Entry* isr_candidate = findIsrCandidate(cutoff);
+#if ROO_SCHEDULER_IGNORE_PRIORITY
+    const TimeComparator compare;
+#else
+    const PriorityComparator compare;
+#endif
+    if (isr_candidate != nullptr &&
+        (candidate == nullptr || compare(*candidate, *isr_candidate))) {
+      candidate = isr_candidate;
+    }
+#endif
+
+    if (candidate != nullptr && candidate->priority() >= min_priority) {
+      to_execute = std::move(*candidate);
       if (to_execute.task() != nullptr) {
-        // Found an eligible task (not canceled, with high enough priority).
-        break;
+#ifndef ROO_THREADS_SINGLETHREADED
+        assert(in_flight_ == nullptr ||
+               in_flight_->thread == roo::this_thread::get_id());
+        flight.thread = roo::this_thread::get_id();
+#endif
+        flight.task = to_execute.task();
+        flight.previous = in_flight_;
+        in_flight_ = &flight;
+      }
+
+#if ROO_THREADS_HAS_ISR_SUPPORT
+      if (candidate == isr_candidate) {
+        releaseIsrSlot(*isr_candidate);
+      } else
+#endif
+      {
+#if ROO_SCHEDULER_IGNORE_PRIORITY
+        pop(retired);
+#else
+        std::pop_heap(ready_.begin(), ready_.end(), PriorityComparator());
+        ready_.pop_back();
+#endif
       }
     }
+
     if (queue_.empty()
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
         && ready_.empty()
 #endif
-    )
+    ) {
       canceled_.clear();
-    if (to_execute.task() != nullptr) {
-#ifndef ROO_THREADS_SINGLETHREADED
-      assert(in_flight_ == nullptr ||
-             in_flight_->thread == roo::this_thread::get_id());
-      flight.thread = roo::this_thread::get_id();
-#endif
-      flight.task = to_execute.task();
-      flight.previous = in_flight_;
-      in_flight_ = &flight;
     }
   }
-  if (to_execute.task() == nullptr) {
-    // No ready tasks.
-    return false;
-  }
+  if (to_execute.task() == nullptr) return false;
   to_execute.task()->execute(to_execute.id());
   return true;
 }
-#endif
 
 void Scheduler::cancel(ExecutionID id) {
   RetiredTasks retired;
@@ -432,6 +555,9 @@ bool Scheduler::cancelAndWait(Executable& task) {
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
   remove(ready_, PriorityComparator());
 #endif
+#if ROO_THREADS_HAS_ISR_SUPPORT
+  removeIsrSlots(task);
+#endif
   while (true) {
     InFlight* active = in_flight_;
     while (active != nullptr && active->task != &task)
@@ -452,29 +578,28 @@ void SchedulingService::delay(roo_time::Duration delay, Priority min_priority) {
 
 void SchedulingService::delayUntil(roo_time::Uptime deadline,
                                    Priority min_priority) {
-  while (roo_time::Uptime::Now() < deadline) {
-    if (executeEligibleTasks(1)) {
-#if ROO_THREADS_HAS_ISR_SUPPORT
-      const auto next = std::min(deadline, getNearestExecutionTime());
-      if (next > roo_time::Uptime::Now()) work_event_.wait_until(next);
-#else
-      roo::unique_lock<roo::mutex> lock(mutex_);
-      roo_time::Uptime next = getNearestExecutionTimeWithLockHeld();
-      if (next > deadline) next = deadline;
-      auto now = roo_time::Uptime::Now();
-      if (next > now) {
-        changed_.wait_until(lock, next);
-      }
-#endif
-    }
+  DispatchSelection selection{deadline, min_priority, DispatchMode::kDelay};
+  while (true) {
+    if (runOneEligibleExecution(selection)) continue;
+    if (selection.mode == DispatchMode::kFixed) return;
+    waitUntilNextWork(deadline);
   }
-  executeEligibleTasksUpTo(deadline, min_priority);
+}
+
+void SchedulingService::waitUntilNextWork(roo_time::Uptime deadline) {
+#if ROO_THREADS_HAS_ISR_SUPPORT
+  const roo_time::Uptime next = std::min(deadline, getNearestExecutionTime());
+  if (next > roo_time::Uptime::Now()) work_event_.wait_until(next);
+#else
+  roo::unique_lock<roo::mutex> lock(mutex_);
+  const auto next = std::min(deadline, getNearestExecutionTimeWithLockHeld());
+  if (next > roo_time::Uptime::Now()) changed_.wait_until(lock, next);
+#endif
 }
 
 void SchedulingService::waitForWork() {
 #if ROO_THREADS_HAS_ISR_SUPPORT
-  const auto next = getNearestExecutionTime();
-  if (next > roo_time::Uptime::Now()) work_event_.wait_until(next);
+  waitUntilNextWork(roo_time::Uptime::Max());
 #elif defined(ROO_SCHEDULER_PICO_EVENT_WAIT)
   const roo_time::Uptime next = getNearestExecutionTime();
   if (next == roo_time::Uptime::Max()) {

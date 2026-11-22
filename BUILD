@@ -3,6 +3,13 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
+TEST_MAIN_DEPS = select({
+    "@roo_testing//roo_testing/platforms:is_arduino": ["@roo_testing//:arduino_gtest_main"],
+    "@roo_testing//roo_testing/platforms:is_idf": ["@roo_testing//:esp_idf_gtest_main"],
+    "@roo_testing//roo_testing/platforms:is_pico": ["@roo_testing//:pico_gtest_main"],
+    "//conditions:default": [],
+})
+
 config_setting(
     name = "bare_metal_rp2040",
     constraint_values = [
@@ -49,9 +56,8 @@ cc_test(
     deps = [
         ":roo_scheduler",
         "@googletest//:gtest",
-        "@roo_testing//:arduino_gtest_main",
         "@roo_testing//roo_testing/system:manual_time_mode",
-    ],
+    ] + TEST_MAIN_DEPS,
 )
 
 cc_test(
@@ -65,8 +71,7 @@ cc_test(
     deps = [
         ":roo_scheduler",
         "@googletest//:gtest",
-        "@roo_testing//:arduino_gtest_main",
-    ],
+    ] + TEST_MAIN_DEPS,
 )
 
 cc_test(
@@ -81,8 +86,7 @@ cc_test(
     deps = [
         ":roo_scheduler",
         "@googletest//:gtest",
-        "@roo_testing//:arduino_gtest_main",
-    ],
+    ] + TEST_MAIN_DEPS,
 )
 
 cc_test(
@@ -93,9 +97,8 @@ cc_test(
     deps = [
         ":roo_scheduler",
         "@googletest//:gtest",
-        "@roo_testing//:arduino_gtest_main",
         "@roo_testing//roo_testing/system:manual_time_mode",
-    ],
+    ] + TEST_MAIN_DEPS,
 )
 
 cc_library(
@@ -120,9 +123,8 @@ cc_test(
     deps = [
         ":roo_scheduler_without_priority",
         "@googletest//:gtest",
-        "@roo_testing//:arduino_gtest_main",
         "@roo_testing//roo_testing/system:manual_time_mode",
-    ],
+    ] + TEST_MAIN_DEPS,
 )
 
 cc_test(
@@ -132,16 +134,55 @@ cc_test(
     linkstatic = True,
     target_compatible_with = [
         "@roo_testing//roo_testing/platforms:bare_metal",
-        "@roo_testing//roo_testing/platforms:arduino",
         "@roo_testing//roo_testing/platforms:pico_sdk",
         "@roo_testing//roo_testing/platforms:rp2040",
     ],
     deps = [
         ":roo_scheduler",
         "@googletest//:gtest",
-        "@roo_testing//:arduino_gtest_main",
         "@roo_testing//:pico_sdk",
         "@roo_testing//roo_testing/system:manual_time_mode",
         "@roo_testing//roo_testing/system:timer",
-    ],
+    ] + TEST_MAIN_DEPS,
+)
+
+cc_test(
+    name = "roo_scheduler_isr_freertos_test",
+    size = "small",
+    srcs = ["test/roo_scheduler_isr_freertos_test.cpp"],
+    linkstatic = True,
+    target_compatible_with = ["@roo_testing//roo_testing/platforms:esp_idf"],
+    deps = [
+        ":roo_scheduler",
+        "@googletest//:gtest",
+        "@roo_testing//roo_testing/interrupts:interrupt_controller",
+    ] + TEST_MAIN_DEPS,
+)
+
+[
+    cc_test(
+        name = scheduler + "_isr_pico_test",
+        size = "small",
+        srcs = ["test/roo_scheduler_isr_pico_test.cpp"],
+        linkstatic = True,
+        target_compatible_with = [
+            "@roo_testing//roo_testing/platforms:bare_metal",
+            "@roo_testing//roo_testing/platforms:pico_sdk",
+            "@roo_testing//roo_testing/platforms:rp2040",
+        ],
+        deps = [
+            ":" + scheduler,
+            "@googletest//:gtest",
+            "@roo_testing//:pico_sdk",
+            "@roo_testing//roo_testing/system:manual_time_mode",
+        ] + TEST_MAIN_DEPS,
+    )
+    for scheduler in ["roo_scheduler", "roo_scheduler_without_priority"]
+]
+
+cc_library(
+    name = "unsupported_isr_client_probe",
+    testonly = True,
+    srcs = ["test/unsupported_isr_client_probe.cpp"],
+    deps = [":roo_scheduler"],
 )
