@@ -32,7 +32,7 @@
         "examples/*/*.ino"
     ],
     "dependencies": {
-        "dejwk/roo_collections": ">=1.4.8",
+        "dejwk/roo_collections": ">=2.0.1",
         "dejwk/roo_threads": ">=1.2.9",
         "dejwk/roo_time": ">=2.0.1"
     }
