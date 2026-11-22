@@ -23,6 +23,7 @@ using Void = void;
   static_assert(Has_##method<SchedulingService>::value, "Owner compatibility")
 
 CHECK_SERVICE_ONLY(run);
+CHECK_SERVICE_ONLY(waitForWork);
 CHECK_SERVICE_ONLY(delay, roo_time::Millis(1));
 CHECK_SERVICE_ONLY(delayUntil, roo_time::Uptime::Now());
 CHECK_SERVICE_ONLY(executeEligibleTasks);

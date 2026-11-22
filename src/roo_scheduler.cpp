@@ -435,26 +435,26 @@ void SchedulingService::delayUntil(roo_time::Uptime deadline,
   executeEligibleTasksUpTo(deadline, min_priority);
 }
 
+void SchedulingService::waitForWork() {
+  roo::unique_lock<roo::mutex> lock(mutex_);
+  const roo_time::Duration delay = getNearestExecutionDelayWithLockHeld();
+  if (delay <= roo_time::Duration()) return;
+  if (delay == roo_time::Duration::Max()) {
+#ifdef ROO_THREADS_SINGLETHREADED
+    // Give the platform's cooperative event pump time to submit work.
+    changed_.wait_for(lock, roo_time::Millis(1));
+#else
+    changed_.wait(lock);
+#endif
+  } else {
+    changed_.wait_for(lock, delay);
+  }
+}
+
 void SchedulingService::run() {
   while (true) {
     executeEligibleTasks();
-    {
-      roo::unique_lock<roo::mutex> lock(mutex_);
-      roo_time::Duration delay = getNearestExecutionDelayWithLockHeld();
-      if (delay > roo_time::Duration()) {
-        if (delay == roo_time::Duration::Max()) {
-#ifdef ROO_THREADS_SINGLETHREADED
-          // No producer thread can wake an indefinite wait. Yield time to the
-          // platform's cooperative event pump, then check for new work.
-          changed_.wait_for(lock, roo_time::Millis(1));
-#else
-          changed_.wait(lock);
-#endif
-        } else {
-          changed_.wait_for(lock, delay);
-        }
-      }
-    }
+    waitForWork();
   }
 }
 

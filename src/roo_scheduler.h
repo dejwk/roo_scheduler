@@ -537,9 +537,17 @@ class SchedulingService : public Scheduler {
   void delayUntil(roo_time::Uptime deadline,
                   Priority min_priority = Priority::kNormal);
 
-  /// Runs scheduler event loop forever.
+  /// Lets the dispatch loop wait until a scheduled task is due or a wakeup
+  /// occurs. Returns immediately when work is already due.
+  ///
   /// Single-threaded backends poll an idle queue at 1 ms intervals, allowing
   /// the platform's delay/event pump to submit work without a producer thread.
+  /// Call from the dispatch context and recheck for work after each return.
+  /// This method does not execute tasks.
+  void waitForWork();
+
+  /// Runs the scheduler event loop forever, dispatching work and waiting for
+  /// the next task.
   void run();
 };
 
