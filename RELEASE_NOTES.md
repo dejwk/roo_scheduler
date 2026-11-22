@@ -2,6 +2,7 @@
 
 - Added allocation-free ISR submission of borrowed tasks with eight pending slots per service and explicit overflow reporting.
 - Wake the dispatcher for task and interrupt submissions on supported FreeRTOS and bare-metal RP2040 builds.
+- Use the public `roo_threads` critical-section and wake APIs for all ISR backends.
 - Integrated ISR work with dispatch cutoffs, priority and cancellation. Requires roo_threads 1.4.0.
 
 ---

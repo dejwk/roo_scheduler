@@ -4,36 +4,6 @@
 #include <cassert>
 #include <exception>
 
-// Emulation identifies the runtime independently of the chip and SDK.
-#if !ROO_THREADS_HAS_ISR_SUPPORT && defined(ROO_THREADS_SINGLETHREADED) && \
-    !defined(__FREERTOS) &&                                                \
-    !(defined(LIB_FREERTOS_KERNEL) && LIB_FREERTOS_KERNEL)
-#if defined(ROO_TESTING)
-#if defined(ROO_TESTING_RUNTIME_BARE_METAL) &&                           \
-    ROO_TESTING_RUNTIME_BARE_METAL && defined(ROO_TESTING_SOC_RP2040) && \
-    ROO_TESTING_SOC_RP2040 && defined(PICO_BUILD) && PICO_BUILD
-#define ROO_SCHEDULER_BARE_METAL_PICO
-#endif
-#elif defined(PICO_ON_DEVICE) && PICO_ON_DEVICE && \
-    (defined(ARDUINO_ARCH_RP2040) ||               \
-     (defined(ROO_THREADS_PICO_SDK_BARE_METAL) &&  \
-      ROO_THREADS_PICO_SDK_BARE_METAL))
-#define ROO_SCHEDULER_BARE_METAL_PICO
-#endif
-#endif
-
-#ifdef ROO_SCHEDULER_BARE_METAL_PICO
-#include <pico/time.h>
-// SDK 2.0.0 could clear a pending event before parking in a timed wait.
-#if defined(PICO_RP2040) && PICO_RP2040 &&                            \
-    (PICO_SDK_VERSION_MAJOR > 2 ||                                    \
-     (PICO_SDK_VERSION_MAJOR == 2 && PICO_SDK_VERSION_MINOR >= 1)) && \
-    !PICO_TIME_DEFAULT_ALARM_POOL_DISABLED
-#include <hardware/sync.h>
-#define ROO_SCHEDULER_PICO_EVENT_WAIT
-#endif
-#endif
-
 namespace roo_scheduler {
 namespace {
 // Execution IDs are nonnegative; encode idle and permanent shutdown in the
@@ -125,10 +95,6 @@ ExecutionID Scheduler::push(roo_time::Uptime when, Executable* task,
   work_event_.signal();
 #else
   changed_.notify_all();
-#ifdef ROO_SCHEDULER_PICO_EVENT_WAIT
-  // Cooperative callbacks can post while the dispatcher is in a Pico wait.
-  __sev();
-#endif
 #endif
   return id;
 }
@@ -137,8 +103,7 @@ ExecutionID Scheduler::push(roo_time::Uptime when, Executable* task,
 bool Scheduler::tryScheduleNowFromIsr(Executable& task,
                                       Priority priority) noexcept {
   {
-    using Guard = roo_threads::internal::IsrLockGuard;
-    Guard lock(isr_lock_, Guard::Context::kIsr);
+    roo::isr_lock_guard lock(isr_lock_, roo::isr_lock_guard::Context::kIsr);
     if (free_isr_slots_ == 0) return false;
     const unsigned index =
         __builtin_ctz(static_cast<unsigned>(free_isr_slots_));
@@ -157,7 +122,7 @@ bool Scheduler::tryScheduleNowFromIsr(Executable& task,
 }
 
 bool Scheduler::hasIsrWork() const {
-  roo_threads::internal::IsrLockGuard lock(isr_lock_);
+  roo::isr_lock_guard lock(isr_lock_);
   return free_isr_slots_ != kAllIsrSlots;
 }
 
@@ -165,7 +130,7 @@ roo_time::Uptime Scheduler::importIsrSlots() {
   uint8_t posted[kIsrCapacity];
   unsigned count;
   {
-    roo_threads::internal::IsrLockGuard lock(isr_lock_);
+    roo::isr_lock_guard lock(isr_lock_);
     count = posted_isr_count_;
     std::copy_n(posted_isr_slots_, count, posted);
     posted_isr_count_ = 0;
@@ -210,12 +175,12 @@ void Scheduler::releaseIsrSlot(Entry& slot) {
 #if !ROO_SCHEDULER_IGNORE_PRIORITY
   ready_isr_slots_ &= ~bit;
 #endif
-  roo_threads::internal::IsrLockGuard lock(isr_lock_);
+  roo::isr_lock_guard lock(isr_lock_);
   free_isr_slots_ |= bit;
 }
 
 void Scheduler::removeIsrSlots(Executable& task) {
-  roo_threads::internal::IsrLockGuard lock(isr_lock_);
+  roo::isr_lock_guard lock(isr_lock_);
   unsigned removed = 0;
   for (unsigned i = 0; i < kIsrCapacity; ++i) {
     const unsigned bit = 1u << i;
@@ -600,14 +565,6 @@ void SchedulingService::waitUntilNextWork(roo_time::Uptime deadline) {
 void SchedulingService::waitForWork() {
 #if ROO_THREADS_HAS_ISR_SUPPORT
   waitUntilNextWork(roo_time::Uptime::Max());
-#elif defined(ROO_SCHEDULER_PICO_EVENT_WAIT)
-  const roo_time::Uptime next = getNearestExecutionTime();
-  if (next == roo_time::Uptime::Max()) {
-    __wfe();
-  } else if (next > roo_time::Uptime::Now()) {
-    best_effort_wfe_or_timeout(
-        from_us_since_boot(static_cast<uint64_t>(next.inMicros())));
-  }
 #else
   roo::unique_lock<roo::mutex> lock(mutex_);
   const roo_time::Duration delay = getNearestExecutionDelayWithLockHeld();

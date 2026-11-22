@@ -23,7 +23,14 @@ SCHEDULER_DEPS = [
     "@roo_collections",
     "@roo_threads",
     "@roo_time",
-] + select({
+]
+
+PICO_ALLOCATION_TEST_DEFINES = select({
+    ":bare_metal_rp2040": ["ROO_SCHEDULER_TEST_PICO_ALARM=1"],
+    "//conditions:default": [],
+})
+
+PICO_ALLOCATION_TEST_DEPS = select({
     ":bare_metal_rp2040": ["@roo_testing//:pico_sdk"],
     "//conditions:default": [],
 })
@@ -94,11 +101,12 @@ cc_test(
     size = "small",
     srcs = ["test/roo_scheduler_allocation_test.cpp"],
     linkstatic = 1,
+    local_defines = PICO_ALLOCATION_TEST_DEFINES,
     deps = [
         ":roo_scheduler",
         "@googletest//:gtest",
         "@roo_testing//roo_testing/system:manual_time_mode",
-    ] + TEST_MAIN_DEPS,
+    ] + TEST_MAIN_DEPS + PICO_ALLOCATION_TEST_DEPS,
 )
 
 cc_library(
@@ -120,11 +128,12 @@ cc_test(
         "test/scheduler_client_test.cpp",
     ],
     linkstatic = 1,
+    local_defines = PICO_ALLOCATION_TEST_DEFINES,
     deps = [
         ":roo_scheduler_without_priority",
         "@googletest//:gtest",
         "@roo_testing//roo_testing/system:manual_time_mode",
-    ] + TEST_MAIN_DEPS,
+    ] + TEST_MAIN_DEPS + PICO_ALLOCATION_TEST_DEPS,
 )
 
 cc_test(

@@ -4,7 +4,7 @@
 #include "gtest/gtest.h"
 #include "roo_scheduler.h"
 
-#ifdef ROO_THREADS_INTERNAL_ISR_PICO
+#ifdef ROO_SCHEDULER_TEST_PICO_ALARM
 #include <pico/time.h>
 #endif
 
@@ -148,7 +148,7 @@ TEST(SchedulerAllocation, SingletonReplacementReusesPendingQueueSlot) {
 }
 }  // namespace roo_scheduler
 
-#if defined(ROO_THREADS_INTERNAL_ISR_PICO)
+#ifdef ROO_SCHEDULER_TEST_PICO_ALARM
 namespace roo_scheduler {
 namespace {
 

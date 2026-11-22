@@ -175,9 +175,11 @@ example:
 
 On bare-metal RP2040 with Pico SDK 2.1 or newer and the default alarm pool
 enabled, `SchedulingService::run()` waits for a scheduled deadline or a
-processor event. Arduino-Pico selects this wait automatically. Native Pico
-SDK builds can set `ROO_THREADS_PICO_SDK_BARE_METAL=1` on the library target.
-Other single-threaded builds poll an idle queue at 1 ms intervals.
+processor event through `roo_threads`. Arduino-Pico selects this wait
+automatically. For native SDK builds, configure
+`ROO_THREADS_PICO_SDK_BARE_METAL=1` for `roo_threads` and its callers.
+Put the SDK dependencies on the `roo_threads` target. Single-threaded
+builds without an ISR work event poll an idle queue at 1 ms intervals.
 
 An interrupt handler can record an application signal and call `__sev()`.
 In the application loop, check for the signal and submit tasks, call

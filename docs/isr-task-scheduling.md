@@ -73,7 +73,8 @@ On supported builds, the `Scheduler` base owns the slots and work event.
 Producers use the `Scheduler` reference they already borrow from
 `SchedulingService`. Construct the service before enabling its producers.
 
-Under the `roo_threads` ISR-safe critical section, `tryScheduleNowFromIsr()`
+Under the public `roo_threads` ISR-safe critical section,
+`tryScheduleNowFromIsr()`
 claims a free slot, copies the task pointer and priority, and appends its
 index to a list in publication order. The function signals the work event
 after leaving the critical section. `true` accepts one execution, including
@@ -157,9 +158,9 @@ retains its eligibility under the existing rules.
 Document that an ISR post can remain pending on return if it is first
 imported after the deadline, even when it was posted before the deadline.
 
-On builds without ISR support, retain the existing wait paths, including
-the raw Pico event path where already available. On supported Pico builds,
-the work event also lets a raw processor event wake `waitForWork()`.
+On builds without ISR support, use the condition-variable wait paths.
+On supported Pico builds, the `roo_threads` work event also lets a raw
+processor event wake `waitForWork()`.
 [Current wait and completion paths](../src/roo_scheduler.cpp)
 
 ### Cancellation and lifetime
@@ -246,8 +247,8 @@ Require the `roo_threads` release that includes both the RP2040 and
 FreeRTOS backends in the Bazel, Arduino, and PlatformIO dependency metadata.
 Integrate the work event into ordinary scheduling, replacement,
 `waitForWork()`, and `delayUntil()`. Keep completion notifications on the
-condition variable. Use the `roo_threads` Pico platform dependency for the
-event path and keep the platform dependency needed by the existing fallback.
+condition variable. Use the public `roo_threads` API for wakeups and keep
+Pico SDK dependencies in `roo_threads` and the Pico-specific test targets.
 Update the wait documentation. Validate earlier task-context submissions,
 idle and timed waits, and Pico raw-event compatibility.
 

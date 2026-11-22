@@ -13,7 +13,7 @@
 #include "roo_collections/flat_small_hash_set.h"
 #include "roo_threads.h"
 #include "roo_threads/condition_variable.h"
-#include "roo_threads/impl/isr_critical_section.h"
+#include "roo_threads/isr_critical_section.h"
 #include "roo_threads/isr_event.h"
 #include "roo_threads/mutex.h"
 #include "roo_time.h"
@@ -472,7 +472,7 @@ class Scheduler {
   void removeIsrSlots(Executable& task);
 
   roo::isr_event work_event_;
-  mutable roo_threads::internal::IsrCriticalSection isr_lock_;
+  mutable roo::isr_critical_section isr_lock_;
 
   // ISR metadata under isr_lock_. Capture the posted list while leaving its
   // slots occupied. After capture, only the dispatcher or cancellation can
@@ -596,10 +596,9 @@ class SchedulingService : public Scheduler {
   /// Lets an application loop sleep until a scheduled task is due or a wakeup
   /// occurs. Returns immediately if work is already due.
   ///
-  /// On bare-metal RP2040 with Pico SDK 2.1 or newer and the default alarm pool
-  /// enabled, an interrupt handler can publish an application signal and call
-  /// `__sev()` to wake the loop. Other single-threaded builds poll an idle
-  /// queue at 1 ms intervals to let the platform's cooperative event pump run.
+  /// A backend that supports raw processor events can also wake this wait.
+  /// Single-threaded builds without an ISR work event poll an idle queue at
+  /// 1 ms intervals to let the platform's cooperative event pump run.
   ///
   /// Submissions can wake a wait for an empty queue or a later deadline.
   /// Call from the dispatch context and recheck application signals and work
